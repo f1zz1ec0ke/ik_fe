@@ -102,18 +102,15 @@ class LlamaServerManager:
                 text=True
             )
             
-            # Wait for server to start
-            time.sleep(3)
-            
-            # Check if server is running
-            self.server_url = f"http://{self.server_host}:{self.server_port}"
-            if self.health_check():
-                self.current_config = config
-                self.is_server_running = True
-                return True, f"Server started successfully at {self.server_url}"
-            else:
+            # Wait for server to start (increased timeout for large models)
+            if not self.wait_for_server(max_wait_seconds=90):
                 return False, "Server failed to start or is not responding"
-                
+            
+            # Server is now available and configured
+            self.current_config = config
+            self.is_server_running = True
+            print("Server started successfully")
+            return True, f"Server started successfully at {self.server_url}"
         except Exception as e:
             return False, str(e)
     
@@ -126,14 +123,96 @@ class LlamaServerManager:
         self.is_server_running = False
         self.server_url = None
     
+    def wait_for_server(self, max_wait_seconds=90):
+        """Wait for server to become available with incremental health checks"""
+        self.server_url = f"http://{self.server_host}:{self.server_port}"
+        print(f"Waiting for server to start at {self.server_url}...")
+
+        total_waited = 0
+        check_interval = 2  # Start with 2-second intervals
+
+        while total_waited < max_wait_seconds:
+            if self.health_check():
+                print(f"Server started successfully after {total_waited} seconds")
+                return True
+
+            remaining_time = max_wait_seconds - total_waited
+            wait_time = min(check_interval, remaining_time)
+
+            # Adjust interval after some time has passed
+            if total_waited > 10:
+                check_interval = 5  # Increase to 5-second intervals after 10 seconds
+            if total_waited > 60:
+                check_interval = 10  # Increase to 10-second intervals after 60 seconds
+
+            print(f"Server not yet available. Waiting {wait_time} more seconds... ({total_waited}/{max_wait_seconds} seconds elapsed)")
+            time.sleep(wait_time)
+            total_waited += wait_time
+
+        return False
+
+    def wait_for_server(self, max_wait_seconds=90):
+        """Wait for server to become available with incremental health checks"""
+        self.server_url = f"http://{self.server_host}:{self.server_port}"
+        print(f"Waiting for server to start at {self.server_url}...")
+
+        total_waited = 0
+        check_interval = 2  # Start with 2-second intervals
+
+        while total_waited < max_wait_seconds:
+            if self.health_check():
+                print(f"Server started successfully after {total_waited} seconds")
+                return True
+
+            remaining_time = max_wait_seconds - total_waited
+            wait_time = min(check_interval, remaining_time)
+
+            # Adjust interval after some time has passed
+            if total_waited > 10:
+                check_interval = 5  # Increase to 5-second intervals after 10 seconds
+            if total_waited > 60:
+                check_interval = 10  # Increase to 10-second intervals after 60 seconds
+
+            print(f"Server not yet available. Waiting {wait_time} more seconds... ({total_waited}/{max_wait_seconds} seconds elapsed)")
+            time.sleep(wait_time)
+            total_waited += wait_time
+
+        return False
+
+    def wait_for_server(self, max_wait_seconds=90):
+        """Wait for server to become available with incremental health checks"""
+        self.server_url = f"http://{self.server_host}:{self.server_port}"
+        print(f"Waiting for server to start at {self.server_url}...")
+
+        total_waited = 0
+        check_interval = 2  # Start with 2-second intervals
+
+        while total_waited < max_wait_seconds:
+            if self.health_check():
+                print(f"Server started successfully after {total_waited} seconds")
+                return True
+
+            remaining_time = max_wait_seconds - total_waited
+            wait_time = min(check_interval, remaining_time)
+
+            # Adjust interval after some time has passed
+            if total_waited > 10:
+                check_interval = 5  # Increase to 5-second intervals after 10 seconds
+            if total_waited > 60:
+                check_interval = 10  # Increase to 10-second intervals after 60 seconds
+
+            print(f"Server not yet available. Waiting {wait_time} more seconds... ({total_waited}/{max_wait_seconds} seconds elapsed)")
+            time.sleep(wait_time)
+            total_waited += wait_time
+
+        return False
+
     def health_check(self):
         """Check if server is responding"""
         try:
-            response = requests.get(f"{self.server_url}/health", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("status") == "ok"
-            return False
+            # Use the models endpoint which is standard for OpenAI-compatible servers
+            response = requests.get(f"{self.server_url}/v1/models", timeout=5)
+            return response.status_code == 200
         except:
             return False
 
@@ -271,6 +350,8 @@ def discover_models():
                     display_name = f"{parent_dir}/{model_name}"
                 else:
                     display_name = model_name
+                
+                print(f"Found model: {model_name} at {relative_path} (display: {display_name})")  # Debug
                 
                 models.append({
                     'name': model_name,
