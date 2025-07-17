@@ -1,0 +1,23 @@
+{
+  "name": "ik_fe",
+  "version": "1.0.0",
+  "description": "A clean, minimal web interface for ik_llama.cpp that makes it easy to interact with local LLM models.",
+  "main": "chat.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://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@github.com/f1zz1ec0ke/ik_fe.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/f1zz1ec0ke/ik_fe/issues"
+  },
+  "homepage": "https://github.com/f1zz1ec0ke/ik_fe#readme",
+  "dependencies": {
+    "marked": "^16.1.0"
+  }
+}
