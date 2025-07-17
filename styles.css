@@ -346,8 +346,219 @@ button:disabled {
     padding: 5px 0;
 }
 
+.status-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.status-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.1em;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.indicator-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ccc;
+    transition: background-color 0.3s;
+}
+
+.indicator-dot.running {
+    background: #4CAF50;
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+}
+
+.indicator-dot.stopped {
+    background: #f44336;
+    box-shadow: 0 0 10px rgba(244, 67, 54, 0.3);
+}
+
+.indicator-dot.loading {
+    background: #ff9800;
+    box-shadow: 0 0 10px rgba(255, 152, 0, 0.3);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.7; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.status-details {
+    display: grid;
+    gap: 10px;
+}
+
+/* Configuration Sections */
+.config-section {
+    margin-bottom: 25px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.config-section h4 {
+    margin: 0 0 15px 0;
+    color: #2c3e50;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-bottom: 2px solid #3498db;
+    padding-bottom: 5px;
+}
+
+.collapsible-header {
+    width: 100%;
+    background: none;
+    border: none;
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #2c3e50;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0;
+    text-align: left;
+}
+
+.collapsible-header:hover {
+    color: #3498db;
+}
+
+.toggle-arrow {
+    font-size: 0.8em;
+    transition: transform 0.3s;
+}
+
+.collapsible-header.collapsed .toggle-arrow {
+    transform: rotate(-90deg);
+}
+
+.collapsible-content {
+    max-height: 1000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
+.collapsible-content.hidden {
+    max-height: 0;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: center;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+}
+
+.checkbox-label input[type="checkbox"] {
+    display: none;
+}
+
+.checkmark {
+    width: 18px;
+    height: 18px;
+    background-color: #fff;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    margin-right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkmark {
+    background-color: #3498db;
+    border-color: #3498db;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkmark::after {
+    content: "✓";
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+    color: #333;
+}
+
+.form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+    color: #333;
+    resize: vertical;
+    min-height: 60px;
+    font-family: inherit;
+}
+
 .status-item strong {
     color: #2c3e50;
+}
+
+.config-display {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.config-display h4 {
+    margin: 0 0 10px 0;
+    color: #2c3e50;
+    font-size: 1em;
+}
+
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+.config-item {
+    padding: 5px 8px;
+    background: rgba(52, 152, 219, 0.1);
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.config-item strong {
+    color: #2c3e50;
+}
+
+.config-item span {
+    color: #3498db;
+    font-weight: 500;
 }
 
 .status-item span {

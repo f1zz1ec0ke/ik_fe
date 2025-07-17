@@ -38,6 +38,20 @@ class ChatInterface {
         this.maxTokensInput = document.getElementById('max-tokens');
         this.topPSlider = document.getElementById('top-p');
         this.topPValue = document.getElementById('top-p-value');
+        this.topKInput = document.getElementById('top-k');
+        this.repeatPenaltySlider = document.getElementById('repeat-penalty');
+        this.repeatPenaltyValue = document.getElementById('repeat-penalty-value');
+        this.threadsInput = document.getElementById('threads');
+        this.nGpuLayersSlider = document.getElementById('n-gpu-layers');
+        this.nGpuLayersValue = document.getElementById('n-gpu-layers-value');
+        this.ctkSelect = document.getElementById('ctk');
+        this.mlaSlider = document.getElementById('mla');
+        this.mlaValue = document.getElementById('mla-value');
+        this.ambInput = document.getElementById('amb');
+        this.flashAttnCheckbox = document.getElementById('flash-attn');
+        this.fmoeCheckbox = document.getElementById('fmoe');
+        this.serCheckbox = document.getElementById('ser');
+        this.rtrCheckbox = document.getElementById('rtr');
         this.systemPromptTextarea = document.getElementById('system-prompt');
         this.autoScrollCheckbox = document.getElementById('auto-scroll');
         this.showThinkingCheckbox = document.getElementById('show-thinking');
@@ -57,10 +71,19 @@ class ChatInterface {
         this.settingsBtn.addEventListener('click', () => this.toggleSettings());
         this.closeSettingsBtn.addEventListener('click', () => this.toggleSettings());
         this.settingsPanel.addEventListener('click', (e) => {
+            // Only close if clicking on the backdrop (settingsPanel itself), not on content
             if (e.target === this.settingsPanel) {
                 this.toggleSettings();
             }
         });
+        
+        // Prevent modal from closing when clicking on settings content
+        const settingsContent = this.settingsPanel.querySelector('.settings-content');
+        if (settingsContent) {
+            settingsContent.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
         
         // Theme toggle
         this.themeToggle.addEventListener('click', () => this.toggleTheme());
@@ -72,6 +95,18 @@ class ChatInterface {
         
         this.topPSlider.addEventListener('input', (e) => {
             this.topPValue.textContent = e.target.value;
+        });
+        
+        this.repeatPenaltySlider.addEventListener('input', (e) => {
+            this.repeatPenaltyValue.textContent = e.target.value;
+        });
+        
+        this.nGpuLayersSlider.addEventListener('input', (e) => {
+            this.nGpuLayersValue.textContent = e.target.value;
+        });
+        
+        this.mlaSlider.addEventListener('input', (e) => {
+            this.mlaValue.textContent = e.target.value;
         });
         
         // Auto-resize textarea
@@ -91,18 +126,46 @@ class ChatInterface {
             const savedConfig = localStorage.getItem('llamaWebConfig');
             if (savedConfig) {
                 this.config = JSON.parse(savedConfig);
+                
+                // Verify the server status is still valid
+                await this.verifyServerStatus();
+                
                 this.modelNameElement.textContent = this.config.model?.split('/').pop() || 'Unknown Model';
-                this.modelStatusElement.textContent = 'Ready';
                 this.populateSettings();
             } else {
                 throw new Error('No configuration found');
             }
         } catch (error) {
             console.error('Failed to load configuration:', error);
-            this.showError('Failed to load model configuration. Please return to the main page.');
+            this.showError('Failed to load model configuration. Please return to the main page and load a model first.');
+            this.disableChat();
         } finally {
             this.hideLoading();
         }
+    }
+
+    async verifyServerStatus() {
+        try {
+            const response = await fetch('/api/status');
+            const status = await response.json();
+            
+            if (!status.is_loaded || status.server_status !== 'running') {
+                throw new Error('Model not loaded on server');
+            }
+            
+            this.modelStatusElement.textContent = 'Ready';
+            this.modelStatusElement.style.color = 'var(--success-color)';
+        } catch (error) {
+            this.modelStatusElement.textContent = 'Model Not Loaded';
+            this.modelStatusElement.style.color = 'var(--danger-color)';
+            throw error;
+        }
+    }
+
+    disableChat() {
+        this.sendBtn.disabled = true;
+        this.userInput.disabled = true;
+        this.userInput.placeholder = 'Model not loaded - return to main page';
     }
 
     populateSettings() {
@@ -114,6 +177,20 @@ class ChatInterface {
         this.maxTokensInput.value = this.config.n_predict || 512;
         this.topPSlider.value = this.config.top_p || 0.95;
         this.topPValue.textContent = this.topPSlider.value;
+        this.topKInput.value = this.config.top_k || 40;
+        this.repeatPenaltySlider.value = this.config.repeat_penalty || 1.1;
+        this.repeatPenaltyValue.textContent = this.repeatPenaltySlider.value;
+        this.threadsInput.value = this.config.threads || 8;
+        this.nGpuLayersSlider.value = this.config.n_gpu_layers || 0;
+        this.nGpuLayersValue.textContent = this.nGpuLayersSlider.value;
+        this.ctkSelect.value = this.config.ctk || 'f16';
+        this.mlaSlider.value = this.config.mla || 0;
+        this.mlaValue.textContent = this.mlaSlider.value;
+        this.ambInput.value = this.config.amb || 512;
+        this.flashAttnCheckbox.checked = this.config.flash_attn || false;
+        this.fmoeCheckbox.checked = this.config.fmoe || false;
+        this.serCheckbox.checked = this.config.ser || false;
+        this.rtrCheckbox.checked = this.config.rtr || false;
         this.systemPromptTextarea.value = this.config.system_prompt || '';
     }
 
@@ -168,6 +245,14 @@ class ChatInterface {
 
     async sendMessage() {
         if (this.isGenerating) return;
+        
+        // Verify model is still loaded before sending
+        try {
+            await this.verifyServerStatus();
+        } catch (error) {
+            this.showError('Model is no longer loaded. Please return to the main page and reload the model.');
+            return;
+        }
         
         const message = this.userInput.value.trim();
         if (!message) return;
@@ -267,6 +352,17 @@ class ChatInterface {
             temperature: parseFloat(this.temperatureSlider.value),
             n_predict: parseInt(this.maxTokensInput.value),
             top_p: parseFloat(this.topPSlider.value),
+            top_k: parseInt(this.topKInput.value),
+            repeat_penalty: parseFloat(this.repeatPenaltySlider.value),
+            threads: parseInt(this.threadsInput.value),
+            n_gpu_layers: parseInt(this.nGpuLayersSlider.value),
+            ctk: this.ctkSelect.value,
+            mla: parseInt(this.mlaSlider.value),
+            amb: parseInt(this.ambInput.value),
+            flash_attn: this.flashAttnCheckbox.checked,
+            fmoe: this.fmoeCheckbox.checked,
+            ser: this.serCheckbox.checked,
+            rtr: this.rtrCheckbox.checked,
             system_prompt: this.systemPromptTextarea.value
         };
     }
@@ -446,25 +542,38 @@ class ChatInterface {
 const thinkingCSS = `
 .thinking-section {
     margin: 10px 0;
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
     overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s ease;
+}
+
+.thinking-section:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
 .thinking-toggle {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.1);
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.12);
     cursor: pointer;
     user-select: none;
-    border-bottom: 1px solid var(--glass-border);
-    transition: background-color 0.2s;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .thinking-toggle:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
 }
 
 .thinking-label {
@@ -485,14 +594,17 @@ const thinkingCSS = `
 }
 
 .thinking-content {
-    padding: 12px;
+    padding: 16px;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.6;
     color: var(--text-muted);
     white-space: pre-wrap;
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease-out;
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
 }
 
 .thinking-section.expanded .thinking-content {
