@@ -12,6 +12,8 @@ class ChatInterface {
         this.setupEventListeners();
         this.loadConfiguration();
         this.applyTheme();
+        // Initialize marked library for markdown parsing
+        this.marked = window.marked;
     }
 
     initializeElements() {
@@ -455,7 +457,8 @@ class ChatInterface {
                 const thinkStart = content.indexOf('<think>', position);
                 if (thinkStart !== -1) {
                     const beforeThinking = content.substring(position, thinkStart);
-                    html += this.escapeHtml(beforeThinking);
+                    // Apply markdown parsing to main content
+                    html += this.convertMarkdownToHtml(beforeThinking);
                     cleanContent += beforeThinking;
                     
                     html += `
@@ -470,7 +473,7 @@ class ChatInterface {
                     position = thinkStart + 7;
                 } else {
                     const remaining = content.substring(position);
-                    html += this.escapeHtml(remaining);
+                    html += this.convertMarkdownToHtml(remaining);
                     cleanContent += remaining;
                     break;
                 }
@@ -516,16 +519,16 @@ class ChatInterface {
     convertMarkdownToHtml(markdown) {
         if (!markdown) return '';
 
-        // Configure marked for security and basic options
-        marked.setOptions({
-            breaks: true,  // Convert single newline to <br>
-            sanitize: true // Sanitize HTML to prevent XSS (marked default)
-        });
-
         try {
-            return marked.parse(markdown);
+            // Configure marked with security options
+            this.marked.setOptions({
+                sanitize: true,  // Sanitize HTML to prevent XSS (marked default)
+                breaks: true     // Convert single newline to <br>
+            });
+
+            return this.marked.parse(markdown);
         } catch (error) {
-            console.error('Markdown parsing error:', error);
+            console.error('Error parsing markdown:', error);
             // Fallback to escaped HTML if parsing fails
             const div = document.createElement('div');
             div.textContent = markdown;
