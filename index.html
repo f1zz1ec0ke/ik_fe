@@ -30,15 +30,147 @@
                         </div>
                     </div>
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="threads">CPU Threads:</label>
-                            <input type="number" id="threads" value="8" min="1" max="32">
+                    <!-- Basic Configuration -->
+                    <div class="config-section">
+                        <h4>Basic Configuration</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="ctx-size">Context Size:</label>
+                                <input type="number" id="ctx-size" value="4096" min="512" max="32768">
+                            </div>
+                            <div class="form-group">
+                                <label for="n-predict">Max Tokens:</label>
+                                <input type="number" id="n-predict" value="512" min="1" max="4096">
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label for="n-gpu-layers">GPU Layers:</label>
-                            <input type="range" id="n-gpu-layers" min="0" max="50" value="0">
-                            <span id="n-gpu-layers-value">0</span>
+                            <label for="system-prompt">System Prompt:</label>
+                            <textarea id="system-prompt" rows="3" placeholder="Enter system prompt..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Hardware Configuration -->
+                    <div class="config-section">
+                        <h4>Hardware Configuration</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="threads">CPU Threads:</label>
+                                <input type="number" id="threads" value="8" min="1" max="32">
+                            </div>
+                            <div class="form-group">
+                                <label for="n-gpu-layers">GPU Layers:</label>
+                                <input type="range" id="n-gpu-layers" min="0" max="50" value="0">
+                                <span id="n-gpu-layers-value">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Generation Parameters -->
+                    <div class="config-section">
+                        <h4>Generation Parameters</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="temperature">Temperature:</label>
+                                <input type="range" id="temperature" min="0.1" max="2.0" step="0.1" value="0.8">
+                                <span id="temp-value">0.8</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="top-p">Top P:</label>
+                                <input type="range" id="top-p" min="0.1" max="1.0" step="0.05" value="0.95">
+                                <span id="top-p-value">0.95</span>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="top-k">Top K:</label>
+                                <input type="number" id="top-k" value="40" min="1" max="100">
+                            </div>
+                            <div class="form-group">
+                                <label for="repeat-penalty">Repeat Penalty:</label>
+                                <input type="range" id="repeat-penalty" min="1.0" max="1.5" step="0.05" value="1.1">
+                                <span id="repeat-penalty-value">1.1</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ik_llama.cpp Specific Parameters -->
+                    <div class="config-section">
+                        <h4>
+                            <button type="button" class="collapsible-header" id="advanced-toggle">
+                                <span>ik_llama.cpp Advanced Settings</span>
+                                <span class="toggle-arrow">▼</span>
+                            </button>
+                        </h4>
+                        <div class="collapsible-content" id="advanced-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="ctk">KV Cache Type:</label>
+                                <select id="ctk">
+                                    <option value="f16">f16 (default)</option>
+                                    <option value="q8_0">q8_0 (recommended)</option>
+                                    <option value="q4_0">q4_0</option>
+                                    <option value="q4_1">q4_1</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="mla">Multi-Layer Attention:</label>
+                                <input type="range" id="mla" min="0" max="3" value="0">
+                                <span id="mla-value">0</span>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="amb">Attention Max Batch:</label>
+                                <input type="number" id="amb" value="512" min="1" max="2048">
+                            </div>
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="flash-attn">
+                                    <span class="checkmark"></span>
+                                    Flash Attention
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="fmoe">
+                                    <span class="checkmark"></span>
+                                    Fused MoE
+                                </label>
+                            </div>
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="ser">
+                                    <span class="checkmark"></span>
+                                    Smart Expert Reduction
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="rtr">
+                                    <span class="checkmark"></span>
+                                    Run-time Tensor Repacking
+                                </label>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuration Presets -->
+                    <div class="config-section">
+                        <h4>Configuration Presets</h4>
+                        <div class="form-group">
+                            <label for="presets">Quick Setup:</label>
+                            <select id="presets">
+                                <option value="">Custom Configuration</option>
+                                <option value="creative">Creative Writing</option>
+                                <option value="balanced">Balanced</option>
+                                <option value="precise">Precise/Factual</option>
+                                <option value="coding">Coding Assistant</option>
+                            </select>
                         </div>
                     </div>
 
@@ -71,11 +203,55 @@
 
         <!-- Status Panel -->
         <div class="status-panel">
-            <div class="status-item">
-                <strong>Status:</strong> <span id="status">Not loaded</span>
+            <div class="status-header">
+                <h3>Server Status</h3>
+                <div class="status-indicator" id="status-indicator">
+                    <span class="indicator-dot" id="indicator-dot"></span>
+                    <span id="status-text">Checking...</span>
+                </div>
             </div>
-            <div class="status-item">
-                <strong>Model:</strong> <span id="current-model">None</span>
+            <div class="status-details">
+                <div class="status-item">
+                    <strong>Model:</strong> <span id="current-model">None</span>
+                </div>
+                <div class="status-item">
+                    <strong>Server URL:</strong> <span id="server-url">Not running</span>
+                </div>
+                <div class="status-item">
+                    <strong>Model File:</strong> <span id="model-file">None</span>
+                </div>
+                <div class="status-item">
+                    <strong>Last Updated:</strong> <span id="last-updated">Never</span>
+                </div>
+            </div>
+            <div class="config-display" id="config-display" style="display: none;">
+                <h4>Current Configuration</h4>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <strong>Context Size:</strong> <span id="config-ctx-size">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>Max Tokens:</strong> <span id="config-n-predict">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>Temperature:</strong> <span id="config-temperature">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>Top P:</strong> <span id="config-top-p">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>KV Cache:</strong> <span id="config-ctk">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>MLA:</strong> <span id="config-mla">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>Flash Attn:</strong> <span id="config-flash-attn">-</span>
+                    </div>
+                    <div class="config-item">
+                        <strong>GPU Layers:</strong> <span id="config-gpu-layers">-</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

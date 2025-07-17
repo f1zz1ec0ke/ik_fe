@@ -6,11 +6,13 @@ class LlamaWebInterface {
         this.tokenCount = 0;
         this.conversationHistory = [];
         this.maxHistoryLength = 20; // Max number of messages to keep in history
+        this.currentModelName = null; // Track current model for persistent storage
         
         this.initializeElements();
         this.setupEventListeners();
         this.setupRangeUpdaters();
         this.loadAvailableModels();
+        this.checkExistingServerStatus();
     }
 
     initializeElements() {
@@ -18,17 +20,32 @@ class LlamaWebInterface {
         this.modelDropdown = document.getElementById('model-dropdown');
         this.modelPath = document.getElementById('model-path');
         this.toggleCustomPathBtn = document.getElementById('toggle-custom-path');
-        this.nPredict = document.getElementById('n-predict');
+        this.browseModelBtn = document.getElementById('browse-model');
+        this.loadModelBtn = document.getElementById('load-model');
+        this.unloadModelBtn = document.getElementById('unload-model');
+        
+        // Basic Configuration
         this.ctxSize = document.getElementById('ctx-size');
+        this.nPredict = document.getElementById('n-predict');
+        this.systemPrompt = document.getElementById('system-prompt');
+        
+        // Generation Parameters
         this.temperature = document.getElementById('temperature');
         this.topP = document.getElementById('top-p');
         this.topK = document.getElementById('top-k');
         this.repeatPenalty = document.getElementById('repeat-penalty');
-        this.systemPrompt = document.getElementById('system-prompt');
+        
+        // ik_llama.cpp Specific Parameters
+        this.ctk = document.getElementById('ctk');
+        this.mla = document.getElementById('mla');
+        this.amb = document.getElementById('amb');
+        this.flashAttn = document.getElementById('flash-attn');
+        this.fmoe = document.getElementById('fmoe');
+        this.ser = document.getElementById('ser');
+        this.rtr = document.getElementById('rtr');
+        
+        // Configuration Presets
         this.presets = document.getElementById('presets');
-        this.loadModelBtn = document.getElementById('load-model');
-        this.unloadModelBtn = document.getElementById('unload-model');
-        this.browseModelBtn = document.getElementById('browse-model');
         
         // Hardware configuration
         this.threads = document.getElementById('threads');
@@ -56,8 +73,24 @@ class LlamaWebInterface {
 
         // Status elements
         this.statusElement = document.getElementById('status');
+        this.statusTextElement = document.getElementById('status-text');
+        this.indicatorDotElement = document.getElementById('indicator-dot');
         this.currentModelElement = document.getElementById('current-model');
+        this.serverUrlElement = document.getElementById('server-url');
+        this.modelFileElement = document.getElementById('model-file');
+        this.lastUpdatedElement = document.getElementById('last-updated');
         this.tokenCountElement = document.getElementById('token-count');
+        
+        // Configuration display elements
+        this.configDisplayElement = document.getElementById('config-display');
+        this.configCtxSizeElement = document.getElementById('config-ctx-size');
+        this.configNPredictElement = document.getElementById('config-n-predict');
+        this.configTemperatureElement = document.getElementById('config-temperature');
+        this.configTopPElement = document.getElementById('config-top-p');
+        this.configCtkElement = document.getElementById('config-ctk');
+        this.configMlaElement = document.getElementById('config-mla');
+        this.configFlashAttnElement = document.getElementById('config-flash-attn');
+        this.configGpuLayersElement = document.getElementById('config-gpu-layers');
         
         // Mode selection elements
         this.enterChatBtn = document.getElementById('enter-chat');
@@ -93,37 +126,51 @@ class LlamaWebInterface {
         }
         
         // Advanced settings toggle
-        this.advancedToggle.addEventListener('click', () => this.toggleAdvancedSettings());
+        if (this.advancedToggle) {
+            this.advancedToggle.addEventListener('click', () => this.toggleAdvancedSettings());
+        }
         
         // Enter key to send message
-        this.userInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.sendMessage();
-            }
-        });
+        if (this.userInput) {
+            this.userInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            });
+        }
     }
 
     setupRangeUpdaters() {
-        this.temperature.addEventListener('input', (e) => {
-            this.tempValue.textContent = e.target.value;
-        });
+        if (this.temperature && this.tempValue) {
+            this.temperature.addEventListener('input', (e) => {
+                this.tempValue.textContent = e.target.value;
+            });
+        }
 
-        this.topP.addEventListener('input', (e) => {
-            this.topPValue.textContent = e.target.value;
-        });
+        if (this.topP && this.topPValue) {
+            this.topP.addEventListener('input', (e) => {
+                this.topPValue.textContent = e.target.value;
+            });
+        }
 
-        this.repeatPenalty.addEventListener('input', (e) => {
-            this.repeatPenaltyValue.textContent = e.target.value;
-        });
+        if (this.repeatPenalty && this.repeatPenaltyValue) {
+            this.repeatPenalty.addEventListener('input', (e) => {
+                this.repeatPenaltyValue.textContent = e.target.value;
+            });
+        }
 
-        this.nGpuLayers.addEventListener('input', (e) => {
-            this.nGpuLayersValue.textContent = e.target.value;
-        });
+        if (this.nGpuLayers && this.nGpuLayersValue) {
+            this.nGpuLayers.addEventListener('input', (e) => {
+                this.nGpuLayersValue.textContent = e.target.value;
+            });
+        }
 
-        this.mla.addEventListener('input', (e) => {
-            this.mlaValue.textContent = e.target.value;
-        });
+        if (this.mla && this.mlaValue) {
+            this.mla.addEventListener('input', (e) => {
+                this.mlaValue.textContent = e.target.value;
+            });
+        }
     }
 
     async loadModel() {
@@ -132,9 +179,11 @@ class LlamaWebInterface {
             return;
         }
 
-        this.setStatus('Loading model...');
-        this.loadModelBtn.disabled = true;
-        this.loadModelBtn.innerHTML = '<span class="loading"></span> Loading...';
+        this.updateStatusDisplay('loading', 'Loading model...');
+        if (this.loadModelBtn) {
+            this.loadModelBtn.disabled = true;
+            this.loadModelBtn.innerHTML = '<span class="loading"></span> Loading...';
+        }
 
         try {
             const config = this.getConfiguration();
@@ -150,24 +199,46 @@ class LlamaWebInterface {
             
             if (result.success) {
                 this.isModelLoaded = true;
-                this.setStatus('Model loaded successfully');
-                this.currentModelElement.textContent = config.model.split('/').pop();
-                if (this.sendBtn) this.sendBtn.disabled = false;
-                if (this.enterChatBtn) this.enterChatBtn.disabled = false;
-                this.unloadModelBtn.disabled = false;
-                if (this.addMessage) {
-                    this.addMessage('system', `Model loaded: ${config.model.split('/').pop()}`);
+                this.updateStatusDisplay('running', 'Model loaded successfully');
+                
+                const modelName = config.model.split('/').pop();
+                this.currentModelName = modelName;
+                
+                if (this.currentModelElement) {
+                    this.currentModelElement.textContent = modelName;
                 }
+                if (this.modelFileElement) {
+                    this.modelFileElement.textContent = modelName;
+                }
+                if (this.serverUrlElement) {
+                    this.serverUrlElement.textContent = 'http://127.0.0.1:8080';
+                }
+                
+                if (this.sendBtn) this.sendBtn.disabled = false;
+                if (this.unloadModelBtn) this.unloadModelBtn.disabled = false;
+                this.addMessage('system', `Model loaded: ${modelName}`);
+                
+                // Save the configuration for this model
+                this.saveModelConfiguration(modelName, config);
+                
+                // Display the configuration used to load the model
+                this.displayConfiguration(config);
+                
+                // Verify server status before enabling chat mode
+                this.verifyServerStatus();
+                this.updateLastUpdatedTime();
             } else {
-                this.setStatus('Failed to load model');
+                this.updateStatusDisplay('stopped', 'Failed to load model');
                 this.addMessage('system', `Error: ${result.error}`);
             }
         } catch (error) {
             this.setStatus('Failed to load model');
             this.addMessage('system', `Error: ${error.message}`);
         } finally {
-            this.loadModelBtn.disabled = false;
-            this.loadModelBtn.textContent = 'Load Model';
+            if (this.loadModelBtn) {
+                this.loadModelBtn.disabled = false;
+                this.loadModelBtn.textContent = 'Load Model';
+            }
         }
     }
 
@@ -178,8 +249,10 @@ class LlamaWebInterface {
         }
 
         this.setStatus('Unloading model...');
-        this.unloadModelBtn.disabled = true;
-        this.unloadModelBtn.innerHTML = '<span class="loading"></span> Unloading...';
+        if (this.unloadModelBtn) {
+            this.unloadModelBtn.disabled = true;
+            this.unloadModelBtn.innerHTML = '<span class="loading"></span> Unloading...';
+        }
 
         try {
             const response = await fetch('/api/unload_model', {
@@ -193,30 +266,49 @@ class LlamaWebInterface {
             
             if (result.success) {
                 this.isModelLoaded = false;
-                this.setStatus('Model unloaded');
-                this.currentModelElement.textContent = 'None';
-                this.sendBtn.disabled = true;
-                this.unloadModelBtn.disabled = true;
-                this.loadModelBtn.disabled = false;
+                this.updateStatusDisplay('stopped', 'Model unloaded');
+                
+                if (this.currentModelElement) {
+                    this.currentModelElement.textContent = 'None';
+                }
+                if (this.modelFileElement) {
+                    this.modelFileElement.textContent = 'None';
+                }
+                if (this.serverUrlElement) {
+                    this.serverUrlElement.textContent = 'Not running';
+                }
+                
+                if (this.sendBtn) this.sendBtn.disabled = true;
+                if (this.unloadModelBtn) this.unloadModelBtn.disabled = true;
+                if (this.loadModelBtn) this.loadModelBtn.disabled = false;
+                if (this.enterChatBtn) this.enterChatBtn.disabled = true;
                 this.addMessage('system', 'Model unloaded successfully');
+                this.hideConfiguration();
+                this.updateLastUpdatedTime();
             } else {
-                this.setStatus('Failed to unload model');
+                this.updateStatusDisplay('stopped', 'Failed to unload model');
                 this.addMessage('system', `Error: ${result.error}`);
             }
         } catch (error) {
             this.setStatus('Failed to unload model');
             this.addMessage('system', `Error: ${error.message}`);
         } finally {
-            this.unloadModelBtn.textContent = 'Unload Model';
+            if (this.unloadModelBtn) {
+                this.unloadModelBtn.textContent = 'Unload Model';
+            }
         }
     }
 
     async loadAvailableModels() {
         try {
+            console.log('Loading available models...');
             const response = await fetch('/api/discover_models');
             const result = await response.json();
             
+            console.log('Models API response:', result);
+            
             if (result.success) {
+                console.log('Found models:', result.models);
                 this.populateModelDropdown(result.models);
             } else {
                 console.error('Failed to load models:', result.error);
@@ -229,9 +321,11 @@ class LlamaWebInterface {
     }
 
     populateModelDropdown(models) {
+        console.log('Populating dropdown with models:', models);
         this.modelDropdown.innerHTML = '';
         
         if (models.length === 0) {
+            console.log('No models found');
             this.modelDropdown.innerHTML = '<option value="">No models found in models/ directory</option>';
             return;
         }
@@ -241,9 +335,10 @@ class LlamaWebInterface {
         
         // Add discovered models
         models.forEach(model => {
+            console.log('Adding model to dropdown:', model);
             const option = document.createElement('option');
             option.value = model.path;
-            option.textContent = `${model.name} (${model.size_mb} MB)`;
+            option.textContent = `${model.display_name} (${model.size_mb} MB)`;
             this.modelDropdown.appendChild(option);
         });
         
@@ -256,6 +351,7 @@ class LlamaWebInterface {
         // Auto-select first model if available
         if (models.length > 0) {
             this.modelDropdown.value = models[0].path;
+            console.log('Auto-selected model:', models[0].path);
         }
     }
 
@@ -265,6 +361,16 @@ class LlamaWebInterface {
             this.toggleCustomPath(true);
         } else {
             this.toggleCustomPath(false);
+            
+            // Load saved configuration for this model
+            if (selected) {
+                const modelName = selected.split('/').pop();
+                const savedConfig = this.loadModelConfiguration(modelName);
+                if (savedConfig) {
+                    this.applyConfigurationToUI(savedConfig);
+                    this.addMessage('system', `Loaded saved configuration for ${modelName}`);
+                }
+            }
         }
     }
 
@@ -298,18 +404,36 @@ class LlamaWebInterface {
         fileInput.click();
     }
 
-    enterChatMode() {
+    async enterChatMode() {
         if (!this.isModelLoaded) {
             alert('Please load a model first before entering chat mode.');
             return;
         }
         
-        // Store current configuration in localStorage for the chat page
-        const config = this.getConfiguration();
-        localStorage.setItem('llamaWebConfig', JSON.stringify(config));
-        
-        // Redirect to chat page
-        window.location.href = 'chat.html';
+        // Verify model is actually loaded on server before proceeding
+        try {
+            const response = await fetch('/api/status');
+            const status = await response.json();
+            
+            if (!status.is_loaded || status.server_status !== 'running') {
+                alert('Model is not properly loaded on server. Please try reloading the model.');
+                this.isModelLoaded = false;
+                if (this.enterChatBtn) this.enterChatBtn.disabled = true;
+                this.setStatus('Model not loaded on server');
+                return;
+            }
+            
+            // Store current configuration in localStorage for the chat page
+            const config = this.getConfiguration();
+            config.serverStatus = status; // Include server status
+            localStorage.setItem('llamaWebConfig', JSON.stringify(config));
+            
+            // Redirect to chat page
+            window.location.href = 'chat.html';
+        } catch (error) {
+            alert('Failed to verify model status. Please try reloading the model.');
+            console.error('Error checking model status:', error);
+        }
     }
 
     async sendMessage() {
@@ -471,6 +595,16 @@ class LlamaWebInterface {
     }
 
     addMessage(type, content) {
+        // Return early if no chat interface exists (e.g., on landing page)
+        if (!this.chatMessages) {
+            console.log(`Message not displayed (no chat interface): [${type}] ${content}`);
+            // For system messages on landing page, show in status instead
+            if (type === 'system' && this.statusElement) {
+                this.statusElement.textContent = content;
+            }
+            return null;
+        }
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}`;
         
@@ -610,8 +744,240 @@ class LlamaWebInterface {
         });
     }
 
+    async verifyServerStatus() {
+        try {
+            const response = await fetch('/api/status');
+            const status = await response.json();
+            
+            if (status.is_loaded && status.server_status === 'running') {
+                if (this.enterChatBtn) this.enterChatBtn.disabled = false;
+                this.setStatus('Model loaded and ready for chat');
+            } else {
+                if (this.enterChatBtn) this.enterChatBtn.disabled = true;
+                this.setStatus('Model loading failed - server not responding');
+                this.isModelLoaded = false;
+            }
+        } catch (error) {
+            if (this.enterChatBtn) this.enterChatBtn.disabled = true;
+            this.setStatus('Failed to verify model status');
+            console.error('Error verifying server status:', error);
+        }
+    }
+
+    async checkExistingServerStatus() {
+        try {
+            this.updateStatusDisplay('loading', 'Checking server status...');
+            
+            const response = await fetch('/api/status');
+            const status = await response.json();
+            
+            if (status.is_loaded && status.server_status === 'running') {
+                this.isModelLoaded = true;
+                this.updateStatusDisplay('running', 'Model loaded and ready');
+                
+                const modelName = status.current_model || 'Unknown';
+                this.currentModelName = modelName;
+                
+                // Update detailed status
+                if (this.currentModelElement) {
+                    this.currentModelElement.textContent = modelName;
+                }
+                if (this.serverUrlElement) {
+                    this.serverUrlElement.textContent = status.server_url || 'Unknown';
+                }
+                if (this.modelFileElement) {
+                    this.modelFileElement.textContent = modelName;
+                }
+                
+                // Load and display saved configuration for this model
+                const savedConfig = this.loadModelConfiguration(modelName);
+                if (savedConfig) {
+                    this.displayConfiguration(savedConfig);
+                }
+                
+                // Enable buttons
+                if (this.sendBtn) this.sendBtn.disabled = false;
+                if (this.enterChatBtn) this.enterChatBtn.disabled = false;
+                if (this.unloadModelBtn) this.unloadModelBtn.disabled = false;
+                if (this.loadModelBtn) this.loadModelBtn.disabled = false;
+            } else {
+                this.updateStatusDisplay('stopped', 'No model loaded');
+                if (this.currentModelElement) {
+                    this.currentModelElement.textContent = 'None';
+                }
+                if (this.serverUrlElement) {
+                    this.serverUrlElement.textContent = 'Not running';
+                }
+                if (this.modelFileElement) {
+                    this.modelFileElement.textContent = 'None';
+                }
+            }
+            
+            this.updateLastUpdatedTime();
+        } catch (error) {
+            console.error('Error checking existing server status:', error);
+            this.updateStatusDisplay('stopped', 'Unable to check server status');
+        }
+    }
+
+    updateStatusDisplay(state, message) {
+        // Update status text
+        if (this.statusTextElement) {
+            this.statusTextElement.textContent = message;
+        }
+        
+        // Update status element (backwards compatibility)
+        if (this.statusElement) {
+            this.statusElement.textContent = message;
+        }
+        
+        // Update indicator dot
+        if (this.indicatorDotElement) {
+            this.indicatorDotElement.className = `indicator-dot ${state}`;
+        }
+    }
+    
+    updateLastUpdatedTime() {
+        if (this.lastUpdatedElement) {
+            const now = new Date();
+            this.lastUpdatedElement.textContent = now.toLocaleTimeString();
+        }
+    }
+
+    displayConfiguration(config) {
+        if (this.configDisplayElement) {
+            this.configDisplayElement.style.display = 'block';
+        }
+        
+        // Update configuration display
+        if (this.configCtxSizeElement) {
+            this.configCtxSizeElement.textContent = config.ctx_size || 'Default';
+        }
+        if (this.configNPredictElement) {
+            this.configNPredictElement.textContent = config.n_predict || 'Default';
+        }
+        if (this.configTemperatureElement) {
+            this.configTemperatureElement.textContent = config.temperature || 'Default';
+        }
+        if (this.configTopPElement) {
+            this.configTopPElement.textContent = config.top_p || 'Default';
+        }
+        if (this.configCtkElement) {
+            this.configCtkElement.textContent = config.ctk || 'f16';
+        }
+        if (this.configMlaElement) {
+            this.configMlaElement.textContent = config.mla || '0';
+        }
+        if (this.configFlashAttnElement) {
+            this.configFlashAttnElement.textContent = config.flash_attn ? 'Yes' : 'No';
+        }
+        if (this.configGpuLayersElement) {
+            this.configGpuLayersElement.textContent = config.n_gpu_layers || '0';
+        }
+    }
+    
+    hideConfiguration() {
+        if (this.configDisplayElement) {
+            this.configDisplayElement.style.display = 'none';
+        }
+    }
+
+    saveModelConfiguration(modelName, config) {
+        const configKey = `modelConfig_${modelName}`;
+        const configData = {
+            modelName,
+            config,
+            timestamp: new Date().toISOString()
+        };
+        localStorage.setItem(configKey, JSON.stringify(configData));
+        
+        // Also save to global config history
+        this.saveToConfigHistory(configData);
+    }
+    
+    loadModelConfiguration(modelName) {
+        const configKey = `modelConfig_${modelName}`;
+        const savedData = localStorage.getItem(configKey);
+        if (savedData) {
+            try {
+                const configData = JSON.parse(savedData);
+                return configData.config;
+            } catch (error) {
+                console.error('Error loading model configuration:', error);
+                return null;
+            }
+        }
+        return null;
+    }
+    
+    saveToConfigHistory(configData) {
+        const historyKey = 'configHistory';
+        let history = [];
+        try {
+            const existingHistory = localStorage.getItem(historyKey);
+            if (existingHistory) {
+                history = JSON.parse(existingHistory);
+            }
+        } catch (error) {
+            console.error('Error loading config history:', error);
+        }
+        
+        // Add new config to history (limit to last 10)
+        history.unshift(configData);
+        history = history.slice(0, 10);
+        
+        localStorage.setItem(historyKey, JSON.stringify(history));
+    }
+    
+    loadConfigurationFromUI() {
+        // Load configuration from saved model settings when model is selected
+        const modelPath = this.modelDropdown.value;
+        if (modelPath) {
+            const modelName = modelPath.split('/').pop();
+            const savedConfig = this.loadModelConfiguration(modelName);
+            if (savedConfig) {
+                this.applyConfigurationToUI(savedConfig);
+            }
+        }
+    }
+    
+    applyConfigurationToUI(config) {
+        // Apply saved configuration to UI elements
+        if (config.ctx_size && this.ctxSize) this.ctxSize.value = config.ctx_size;
+        if (config.n_predict && this.nPredict) this.nPredict.value = config.n_predict;
+        if (config.temperature && this.temperature) {
+            this.temperature.value = config.temperature;
+            if (this.tempValue) this.tempValue.textContent = config.temperature;
+        }
+        if (config.top_p && this.topP) {
+            this.topP.value = config.top_p;
+            if (this.topPValue) this.topPValue.textContent = config.top_p;
+        }
+        if (config.top_k && this.topK) this.topK.value = config.top_k;
+        if (config.repeat_penalty && this.repeatPenalty) {
+            this.repeatPenalty.value = config.repeat_penalty;
+            if (this.repeatPenaltyValue) this.repeatPenaltyValue.textContent = config.repeat_penalty;
+        }
+        if (config.system_prompt && this.systemPrompt) this.systemPrompt.value = config.system_prompt;
+        if (config.threads && this.threads) this.threads.value = config.threads;
+        if (config.n_gpu_layers && this.nGpuLayers) {
+            this.nGpuLayers.value = config.n_gpu_layers;
+            if (this.nGpuLayersValue) this.nGpuLayersValue.textContent = config.n_gpu_layers;
+        }
+        if (config.ctk && this.ctk) this.ctk.value = config.ctk;
+        if (config.mla && this.mla) {
+            this.mla.value = config.mla;
+            if (this.mlaValue) this.mlaValue.textContent = config.mla;
+        }
+        if (config.amb && this.amb) this.amb.value = config.amb;
+        if (config.flash_attn !== undefined && this.flashAttn) this.flashAttn.checked = config.flash_attn;
+        if (config.fmoe !== undefined && this.fmoe) this.fmoe.checked = config.fmoe;
+        if (config.ser !== undefined && this.ser) this.ser.checked = config.ser;
+        if (config.rtr !== undefined && this.rtr) this.rtr.checked = config.rtr;
+    }
+
     setStatus(status) {
-        this.statusElement.textContent = status;
+        this.updateStatusDisplay('stopped', status);
     }
 
     toggleAdvancedSettings() {
@@ -669,32 +1035,32 @@ class LlamaWebInterface {
 
     getConfiguration() {
         // Get model path from dropdown or custom input
-        const modelPath = this.modelPath.style.display === 'none' 
-            ? this.modelDropdown.value 
-            : this.modelPath.value;
+        const modelPath = this.modelPath && this.modelPath.style.display === 'none' 
+            ? (this.modelDropdown ? this.modelDropdown.value : '')
+            : (this.modelPath ? this.modelPath.value : '');
             
         return {
             model: modelPath,
-            n_predict: parseInt(this.nPredict.value),
-            ctx_size: parseInt(this.ctxSize.value),
-            temperature: parseFloat(this.temperature.value),
-            top_p: parseFloat(this.topP.value),
-            top_k: parseInt(this.topK.value),
-            repeat_penalty: parseFloat(this.repeatPenalty.value),
-            system_prompt: this.systemPrompt.value,
+            n_predict: this.nPredict ? parseInt(this.nPredict.value) : 512,
+            ctx_size: this.ctxSize ? parseInt(this.ctxSize.value) : 2048,
+            temperature: this.temperature ? parseFloat(this.temperature.value) : 0.8,
+            top_p: this.topP ? parseFloat(this.topP.value) : 0.95,
+            top_k: this.topK ? parseInt(this.topK.value) : 40,
+            repeat_penalty: this.repeatPenalty ? parseFloat(this.repeatPenalty.value) : 1.1,
+            system_prompt: this.systemPrompt ? this.systemPrompt.value : '',
             
             // Hardware configuration
-            threads: parseInt(this.threads.value),
-            n_gpu_layers: parseInt(this.nGpuLayers.value),
+            threads: this.threads ? parseInt(this.threads.value) : 8,
+            n_gpu_layers: this.nGpuLayers ? parseInt(this.nGpuLayers.value) : 0,
             
             // ik_llama.cpp specific parameters
-            ctk: this.ctk.value !== 'f16' ? this.ctk.value : null,
-            mla: parseInt(this.mla.value) || null,
-            flash_attn: this.flashAttn.checked,
-            amb: parseInt(this.amb.value) || null,
-            fmoe: this.fmoe.checked,
-            ser: this.ser.checked,
-            rtr: this.rtr.checked
+            ctk: this.ctk && this.ctk.value !== 'f16' ? this.ctk.value : null,
+            mla: this.mla ? parseInt(this.mla.value) || 0 : 0,
+            flash_attn: this.flashAttn ? this.flashAttn.checked : false,
+            amb: this.amb ? parseInt(this.amb.value) || 512 : 512,
+            fmoe: this.fmoe ? this.fmoe.checked : false,
+            ser: this.ser ? this.ser.checked : false,
+            rtr: this.rtr ? this.rtr.checked : false
         };
     }
 }
