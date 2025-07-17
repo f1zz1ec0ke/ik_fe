@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ik_llama.cpp Web Interface</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ik_llama.cpp Web Interface</h1>
+            <p>High-performance LLM inference with hybrid CPU/GPU acceleration</p>
+        </header>
+
+        <!-- Model Configuration Section -->
+        <div class="model-config-section">
+            <h2>Model Configuration</h2>
+            <div class="config-panel">
+                <form id="config-form">
+                    <div class="form-group">
+                        <label for="model-selection">Model:</label>
+                        <select id="model-dropdown">
+                            <option value="">Loading models...</option>
+                        </select>
+                        <div class="model-path-group">
+                            <input type="text" id="model-path" placeholder="Or enter custom path..." style="display: none;">
+                            <button type="button" id="browse-model" style="display: none;">Browse</button>
+                            <button type="button" id="toggle-custom-path">Custom Path</button>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="threads">CPU Threads:</label>
+                            <input type="number" id="threads" value="8" min="1" max="32">
+                        </div>
+                        <div class="form-group">
+                            <label for="n-gpu-layers">GPU Layers:</label>
+                            <input type="range" id="n-gpu-layers" min="0" max="50" value="0">
+                            <span id="n-gpu-layers-value">0</span>
+                        </div>
+                    </div>
+
+                    <div class="model-controls">
+                        <button type="button" id="load-model">Load Model</button>
+                        <button type="button" id="unload-model" disabled>Unload Model</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Mode Selection Section -->
+        <div class="mode-selection-section">
+            <h2>Select Mode</h2>
+            <div class="mode-grid">
+                <div class="mode-card" id="chat-mode">
+                    <div class="mode-icon">💬</div>
+                    <h3>Chat Mode</h3>
+                    <p>Interactive conversation with the AI model</p>
+                    <button class="mode-btn" id="enter-chat" disabled>Enter Chat</button>
+                </div>
+                <div class="mode-card unavailable">
+                    <div class="mode-icon">🔧</div>
+                    <h3>Other Modes</h3>
+                    <p>Additional features coming soon</p>
+                    <button class="mode-btn" disabled>Unavailable</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Panel -->
+        <div class="status-panel">
+            <div class="status-item">
+                <strong>Status:</strong> <span id="status">Not loaded</span>
+            </div>
+            <div class="status-item">
+                <strong>Model:</strong> <span id="current-model">None</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
