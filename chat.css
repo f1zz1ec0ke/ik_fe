@@ -273,6 +273,81 @@
     animation: slideIn 0.3s ease;
 }
 
+/* Markdown styling */
+.message p {
+    margin: 0.5em 0;
+    line-height: 1.6;
+}
+
+.message h1, .message h2, .message h3, .message h4, .message h5, .message h6 {
+    margin: 1em 0 0.5em;
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
+.message strong {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.message em {
+    font-style: italic;
+    color: rgba(var(--text-primary-rgb), 0.8);
+}
+
+.message a {
+    color: var(--accent-color);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent-color);
+    transition: all 0.2s ease;
+}
+
+.message a:hover {
+    text-decoration: underline;
+    color: var(--accent-hover);
+}
+
+.message ul, .message ol {
+    margin: 0.5em 0 0.5em 1em;
+    padding-left: 1em;
+}
+
+.message li {
+    margin-bottom: 0.3em;
+}
+
+.message blockquote {
+    border-left: 4px solid rgba(var(--text-secondary-rgb), 0.6);
+    padding-left: 1em;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin: 1em 0;
+}
+
+.message pre {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    font-family: 'Consolas', 'Courier New', Courier, monospace;
+    color: var(--accent-color);
+    margin: 1em 0;
+}
+
+.message code {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: 'Consolas', 'Courier New', Courier, monospace;
+    color: var(--accent-color);
+}
+
+.message hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    margin: 1em 0;
+}
+
 @keyframes slideIn {
     from {
         opacity: 0;

@@ -415,12 +415,15 @@ class ChatInterface {
     }
 
     addMessage(type, content) {
-        const messageDiv = document.createElement('div');
+        const messageDiv = document.createElement("div");
         messageDiv.className = `message ${type}`;
         
-        if (type === 'assistant') {
-            const parsed = this.parseStreamingThinking(content);
-            messageDiv.innerHTML = parsed.html;
+        if (type === "assistant") {
+            // Process thinking sections first
+            const parsedThinking = this.parseStreamingThinking(content);
+            // Then convert remaining markdown
+            const htmlContent = this.convertMarkdownToHtml(parsedThinking.cleanContent);
+            messageDiv.innerHTML = parsedThinking.html.replace("<div class=\"thinking-content\">", `<div class="thinking-content">${htmlContent}`);
         } else {
             messageDiv.textContent = content;
         }
@@ -431,8 +434,14 @@ class ChatInterface {
     }
 
     updateAssistantMessage(messageDiv, content) {
-        const streamingResult = this.parseStreamingThinking(content);
-        messageDiv.innerHTML = streamingResult.html;
+        if (messageDiv.classList.contains("assistant")) {
+            const streamingResult = this.parseStreamingThinking(content);
+            // Convert markdown for the clean content
+            const htmlContent = this.convertMarkdownToHtml(streamingResult.cleanContent);
+            messageDiv.innerHTML = streamingResult.html.replace("<div class=\"thinking-content\">", `<div class="thinking-content">${htmlContent}`);
+        } else {
+            messageDiv.textContent = content;
+        }
     }
 
     parseStreamingThinking(content) {
@@ -502,6 +511,26 @@ class ChatInterface {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    convertMarkdownToHtml(markdown) {
+        if (!markdown) return '';
+
+        // Configure marked for security and basic options
+        marked.setOptions({
+            breaks: true,  // Convert single newline to <br>
+            sanitize: true // Sanitize HTML to prevent XSS (marked default)
+        });
+
+        try {
+            return marked.parse(markdown);
+        } catch (error) {
+            console.error('Markdown parsing error:', error);
+            // Fallback to escaped HTML if parsing fails
+            const div = document.createElement('div');
+            div.textContent = markdown;
+            return div.innerHTML;
+        }
     }
 
     trimConversationHistory() {
