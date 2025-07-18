@@ -498,6 +498,13 @@ class ChatInterface {
             html += `</div></div>`;
         }
 
+        // Process any remaining content after the last thinking section
+        if (position < content.length) {
+            const remaining = content.substring(position);
+            html += this.convertMarkdownToHtml(remaining);
+            cleanContent += remaining;
+        }
+
         return { html, cleanContent };
     }
 
