@@ -6,6 +6,8 @@ import time
 import requests
 import socket
 import logging
+import atexit
+import os
 from datetime import datetime
 from flask import Flask, request, jsonify, Response, send_from_directory, session, stream_with_context
 from flask_cors import CORS
@@ -56,6 +58,26 @@ class LlamaServerManager:
         self.server_port = 8080
         self.server_host = "127.0.0.1"
         self.server_url = f"http://{self.server_host}:{self.server_port}"
+        
+        # Enhanced state management
+        self._state_lock = threading.Lock()
+        self._last_health_check = 0
+        self._health_check_interval = 5  # seconds
+        self._startup_timeout = 90  # seconds
+        self._shutdown_timeout = 10  # seconds
+        
+        # Process monitoring
+        self._monitor_thread = None
+        self._monitor_active = False
+        self._restart_attempts = 0
+        self._max_restart_attempts = 3
+        
+        # Build integration
+        self._build_version = None
+        self._last_build_check = 0
+        
+        # Register cleanup handler
+        atexit.register(self._cleanup_on_exit)
 
     def find_llama_server(self):
         """Find llama-server executable"""
@@ -100,11 +122,17 @@ class LlamaServerManager:
 
     def start_server(self, config):
         """Start llama-server with given configuration"""
-        try:
+        with self._state_lock:
+            # Check for build changes
+            if self._check_build_changes() and self.is_server_running:
+                logger.info("Build changed, restarting server...")
+                self._stop_server_internal(force=False)
+            
             # Stop existing server if running
             if self.server_process:
                 self.stop_server()
-            
+        
+        try:
             # Handle model path - support both relative and absolute paths
             model_path = config["model"]
             
@@ -187,30 +215,46 @@ class LlamaServerManager:
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                text=True
+                text=True,
+                preexec_fn=None if platform.system() == "Windows" else os.setsid
             )
             
-            # Wait for server to start (increased timeout for large models)
-            if not self.wait_for_server(max_wait_seconds=90):
+            # Start process monitoring
+            self._monitor_active = True
+            self._monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
+            self._monitor_thread.start()
+            
+            # Wait for server to start (use configured timeout)
+            if not self.wait_for_server(max_wait_seconds=self._startup_timeout):
+                self._stop_server_internal(force=True)
                 return False, "Server failed to start or is not responding"
             
             # Server is now available and configured
             self.current_config = config
             self.current_config["model"] = model_path  # Store the resolved absolute path
             self.is_server_running = True
+            self._restart_attempts = 0  # Reset restart counter on successful start
             print("Server started successfully")
             return True, f"Server started successfully at {self.server_url}"
         except Exception as e:
+            # Cleanup on error
+            self._stop_server_internal(force=True)
             return False, str(e)
 
     def start_server_stream(self, config):
         """Start llama-server with streaming output for real-time feedback"""
-        try:
-            # Stop existing server if running
-            if self.server_process:
-                self.stop_server()
+        with self._state_lock:
+            # Check for build changes
+                if self._check_build_changes() and self.is_server_running:
+                    yield f"data: {json.dumps({'status': 'preparing', 'progress': 2, 'message': 'Build changed, restarting server...'})}\n\n"
+                    self._stop_server_internal(force=False)
+                
+                # Stop existing server if running
+                if self.server_process:
+                    self.stop_server()
                 yield f"data: {json.dumps({'status': 'preparing', 'progress': 5, 'message': 'Stopping existing server...'})}\n\n"
-            
+        
+        try:
             # Handle model path - support both relative and absolute paths
             model_path = config["model"]
             
@@ -288,16 +332,21 @@ class LlamaServerManager:
             
             yield f"data: {json.dumps({'status': 'starting', 'progress': 25, 'message': 'Starting llama-server process...'})}\n\n"
             
-            # Start the server process
+            # Start the server process with enhanced monitoring
             self.server_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                preexec_fn=None if platform.system() == "Windows" else os.setsid,
                 universal_newlines=True
             )
-            
+            # Start monitoring thread after successful process creation
+            if self.server_process:
+                self._monitor_active = True
+                self._monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
+                self._monitor_thread.start()
             yield f"data: {json.dumps({'status': 'loading', 'progress': 30, 'message': 'Server process started, loading model...'})}\n\n"
             
             # Read server output in real-time
@@ -305,7 +354,6 @@ class LlamaServerManager:
             server_ready = False
             
             # Use a separate thread to monitor server output
-            import threading
             import queue
             output_queue = queue.Queue()
             
@@ -418,17 +466,146 @@ class LlamaServerManager:
             logger.info("Sending success message...")
             yield f"data: {json.dumps({'status': 'success', 'progress': 100, 'message': f'Model loaded successfully! Server running at {self.server_url}'})}\n\n"
             logger.info("Model loading stream completed successfully!")
-            
+        
         except Exception as e:
-            yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Error: {str(e)}'})}\n\n"
+            logger.error(f"Error in start_server_stream: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Server start failed: {str(e)}'})}\n\n"
+
+            if self.server_process:
+                self._stop_server_internal(force=True)
     
     def stop_server(self):
         """Stop the llama-server"""
-        if self.server_process:
-            self.server_process.terminate()
-            self.server_process.wait()
-            self.server_process = None
-        self.is_server_running = False
+        return self._stop_server_internal(force=False)
+    
+    def _cleanup_on_exit(self):
+        """Cleanup handler called on exit"""
+        try:
+            if self.server_process and self.server_process.poll() is None:
+                logger.info("Cleaning up server process on exit...")
+                self._stop_server_internal(force=True)
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+    
+    def _stop_server_internal(self, force=False):
+        """Internal method to stop server with enhanced control"""
+        with self._state_lock:
+            if not self.server_process:
+                self.is_server_running = False
+                return True
+            
+            try:
+                # Stop monitoring first
+                self._monitor_active = False
+                if self._monitor_thread and self._monitor_thread.is_alive():
+                    self._monitor_thread.join(timeout=2)
+                
+                # Graceful shutdown first
+                if not force and self.server_process.poll() is None:
+                    logger.info("Attempting graceful server shutdown...")
+                    self.server_process.terminate()
+                    
+                    # Wait for graceful shutdown
+                    try:
+                        self.server_process.wait(timeout=self._shutdown_timeout)
+                        logger.info("Server shut down gracefully")
+                    except subprocess.TimeoutExpired:
+                        logger.warning("Graceful shutdown timed out, forcing termination")
+                        force = True
+                
+                # Force kill if needed
+                if force and self.server_process.poll() is None:
+                    logger.info("Force killing server process...")
+                    self.server_process.kill()
+                    try:
+                        self.server_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        logger.error("Failed to kill server process")
+                        return False
+                
+                self.server_process = None
+                self.is_server_running = False
+                self._restart_attempts = 0
+                logger.info("Server stopped successfully")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error stopping server: {e}")
+                return False
+    
+    def _monitor_server_process(self):
+        """Monitor server process and restart if needed"""
+        while self._monitor_active and self.server_process:
+            try:
+                # Check if process is still alive
+                if self.server_process.poll() is not None:
+                    logger.warning("Server process died unexpectedly")
+                    
+                    with self._state_lock:
+                        if self._restart_attempts < self._max_restart_attempts:
+                            self._restart_attempts += 1
+                            logger.info(f"Attempting restart {self._restart_attempts}/{self._max_restart_attempts}")
+                            
+                            # Try to restart with current config
+                            if self.current_config:
+                                try:
+                                    self.start_server(self.current_config)
+                                except Exception as e:
+                                    logger.error(f"Restart attempt failed: {e}")
+                        else:
+                            logger.error("Max restart attempts reached, giving up")
+                            self.is_server_running = False
+                            break
+                
+                # Periodic health check
+                current_time = time.time()
+                if current_time - self._last_health_check > self._health_check_interval:
+                    if not self.health_check(test_inference=False):
+                        logger.warning("Health check failed")
+                    self._last_health_check = current_time
+                
+                time.sleep(2)  # Check every 2 seconds
+                
+            except Exception as e:
+                logger.error(f"Error in server monitor: {e}")
+                time.sleep(5)  # Wait longer on error
+    
+    def _get_build_version(self):
+        """Get current build version/hash"""
+        try:
+            if os.path.exists("ik_llama.cpp/.git"):
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd="ik_llama.cpp",
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()[:8]  # Short hash
+        except Exception as e:
+            logger.debug(f"Could not get build version: {e}")
+        return None
+    
+    def _check_build_changes(self):
+        """Check if build has changed since last check"""
+        current_time = time.time()
+        if current_time - self._last_build_check < 60:  # Check at most once per minute
+            return False
+        
+        self._last_build_check = current_time
+        current_version = self._get_build_version()
+        
+        if self._build_version is None:
+            self._build_version = current_version
+            return False
+        
+        if current_version != self._build_version:
+            logger.info(f"Build version changed: {self._build_version} -> {current_version}")
+            self._build_version = current_version
+            return True
+        
+        return False
     
     def wait_for_server(self, max_wait_seconds=90):
         """Wait for server to become available with incremental health checks"""

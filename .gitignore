@@ -18,6 +18,7 @@ debug.log
 .eggs/
 llama.cpp/
 ik_llama.cpp/
+.serena/
 models/mymodels/
 lib/
 lib64/
