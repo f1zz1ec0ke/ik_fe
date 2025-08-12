@@ -11,6 +11,7 @@ class ChatInterface {
         this.initializeElements();
         this.setupEventListeners();
         this.loadConfiguration();
+        this.loadChatHistory();
         this.applyTheme();
         // Initialize marked library for markdown parsing
         this.marked = window.marked;
@@ -124,19 +125,24 @@ class ChatInterface {
 
     async loadConfiguration() {
         try {
-            // Load config from localStorage (set by landing page)
-            const savedConfig = localStorage.getItem('llamaWebConfig');
-            if (savedConfig) {
-                this.config = JSON.parse(savedConfig);
-                
-                // Verify the server status is still valid
-                await this.verifyServerStatus();
-                
-                this.modelNameElement.textContent = this.config.model?.split('/').pop() || 'Unknown Model';
-                this.populateSettings();
+            // Use the SettingsManager if available, otherwise fall back to local storage
+            if (window.settingsManager) {
+                this.config = window.settingsManager.getConfiguration();
             } else {
-                throw new Error('No configuration found');
+                // Load config from localStorage (set by landing page)
+                const savedConfig = localStorage.getItem('llamaWebConfig');
+                if (savedConfig) {
+                    this.config = JSON.parse(savedConfig);
+                } else {
+                    throw new Error('No configuration found');
+                }
             }
+            
+            // Verify the server status is still valid
+            await this.verifyServerStatus();
+            
+            this.modelNameElement.textContent = this.config.model?.split('/').pop() || 'Unknown Model';
+            this.populateSettings();
         } catch (error) {
             console.error('Failed to load configuration:', error);
             this.showError('Failed to load model configuration. Please return to the main page and load a model first.');
@@ -194,6 +200,23 @@ class ChatInterface {
         this.serCheckbox.checked = this.config.ser || false;
         this.rtrCheckbox.checked = this.config.rtr || false;
         this.systemPromptTextarea.value = this.config.system_prompt || '';
+    }
+    
+    saveConfiguration() {
+        try {
+            const config = this.getCurrentConfig();
+            
+            // Use SettingsManager if available, otherwise fall back to localStorage
+            if (window.settingsManager) {
+                // Update the settings manager with our current config
+                window.settingsManager.applyConfigurationToUI(config);
+                window.settingsManager.saveConfig();
+            } else {
+                localStorage.setItem('llamaWebConfig', JSON.stringify(config));
+            }
+        } catch (error) {
+            console.error('Failed to save configuration:', error);
+        }
     }
 
     hideLoading() {
@@ -414,6 +437,7 @@ class ChatInterface {
         this.conversationHistory = [];
         this.tokenCount = 0;
         this.updateMetrics();
+        this.saveChatHistory();
     }
 
     addMessage(type, content) {
@@ -547,6 +571,44 @@ class ChatInterface {
         if (this.conversationHistory.length > this.maxHistoryLength) {
             this.conversationHistory = this.conversationHistory.slice(-this.maxHistoryLength);
         }
+        this.saveChatHistory();
+    }
+    
+    saveChatHistory() {
+        try {
+            localStorage.setItem('chatHistory', JSON.stringify(this.conversationHistory));
+        } catch (error) {
+            console.error('Failed to save chat history:', error);
+        }
+    }
+    
+    loadChatHistory() {
+        try {
+            const savedHistory = localStorage.getItem('chatHistory');
+            if (savedHistory) {
+                this.conversationHistory = JSON.parse(savedHistory);
+                // Render saved messages
+                this.renderSavedChatHistory();
+            }
+        } catch (error) {
+            console.error('Failed to load chat history:', error);
+            this.conversationHistory = [];
+        }
+    }
+    
+    renderSavedChatHistory() {
+        // Clear current chat display
+        this.chatMessages.innerHTML = '';
+        
+        // Render each message in the history
+        this.conversationHistory.forEach(message => {
+            if (message.role === 'user' || message.role === 'assistant') {
+                this.addMessage(message.role, message.content);
+            }
+        });
+        
+        // Scroll to the bottom
+        this.scrollToBottom();
     }
 
     scrollToBottom() {
@@ -557,6 +619,11 @@ class ChatInterface {
 
     toggleSettings() {
         this.settingsPanel.classList.toggle('show');
+        
+        // Save configuration when closing settings panel
+        if (!this.settingsPanel.classList.contains('show')) {
+            this.saveConfiguration();
+        }
     }
 
     toggleTheme() {

@@ -11,9 +11,23 @@ import sys
 import psutil
 from urllib.parse import urljoin
 import glob
+import platform
+import shutil
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.')
 CORS(app)
+
+@app.route('/')
+def serve_new_index():
+    return send_from_directory('.', 'new-index.html')
+
+@app.route('/script.js')
+def serve_new_script():
+    return send_from_directory('.', 'new-script.js')
+
+@app.route('/styles.css')
+def serve_new_styles():
+    return send_from_directory('.', 'new-styles.css')
 
 class LlamaServerManager:
     def __init__(self):
@@ -91,6 +105,11 @@ class LlamaServerManager:
             
             if config.get("rtr", False):
                 cmd.append("-rtr")
+                
+            # Add override tensor pattern option
+            if config.get("override_tensor"):
+                cmd.append("-ot")
+                cmd.append(config.get("override_tensor"))
             
             print(f"Starting llama-server with command: {' '.join(cmd)}")
             
@@ -123,62 +142,6 @@ class LlamaServerManager:
         self.is_server_running = False
         self.server_url = None
     
-    def wait_for_server(self, max_wait_seconds=90):
-        """Wait for server to become available with incremental health checks"""
-        self.server_url = f"http://{self.server_host}:{self.server_port}"
-        print(f"Waiting for server to start at {self.server_url}...")
-
-        total_waited = 0
-        check_interval = 2  # Start with 2-second intervals
-
-        while total_waited < max_wait_seconds:
-            if self.health_check():
-                print(f"Server started successfully after {total_waited} seconds")
-                return True
-
-            remaining_time = max_wait_seconds - total_waited
-            wait_time = min(check_interval, remaining_time)
-
-            # Adjust interval after some time has passed
-            if total_waited > 10:
-                check_interval = 5  # Increase to 5-second intervals after 10 seconds
-            if total_waited > 60:
-                check_interval = 10  # Increase to 10-second intervals after 60 seconds
-
-            print(f"Server not yet available. Waiting {wait_time} more seconds... ({total_waited}/{max_wait_seconds} seconds elapsed)")
-            time.sleep(wait_time)
-            total_waited += wait_time
-
-        return False
-
-    def wait_for_server(self, max_wait_seconds=90):
-        """Wait for server to become available with incremental health checks"""
-        self.server_url = f"http://{self.server_host}:{self.server_port}"
-        print(f"Waiting for server to start at {self.server_url}...")
-
-        total_waited = 0
-        check_interval = 2  # Start with 2-second intervals
-
-        while total_waited < max_wait_seconds:
-            if self.health_check():
-                print(f"Server started successfully after {total_waited} seconds")
-                return True
-
-            remaining_time = max_wait_seconds - total_waited
-            wait_time = min(check_interval, remaining_time)
-
-            # Adjust interval after some time has passed
-            if total_waited > 10:
-                check_interval = 5  # Increase to 5-second intervals after 10 seconds
-            if total_waited > 60:
-                check_interval = 10  # Increase to 10-second intervals after 60 seconds
-
-            print(f"Server not yet available. Waiting {wait_time} more seconds... ({total_waited}/{max_wait_seconds} seconds elapsed)")
-            time.sleep(wait_time)
-            total_waited += wait_time
-
-        return False
-
     def wait_for_server(self, max_wait_seconds=90):
         """Wait for server to become available with incremental health checks"""
         self.server_url = f"http://{self.server_host}:{self.server_port}"
@@ -286,6 +249,246 @@ llama_server = LlamaServerManager()
 def index():
     """Serve the main HTML page"""
     return send_from_directory('.', 'index.html')
+
+@app.route('/api/build', methods=['POST'])
+def build():
+    """Start the build process with the specified options"""
+    try:
+        data = request.json
+        repo_option = data.get('repo_option', 'clone')
+        cuda_support = data.get('cuda_support', False)
+        opencl_support = data.get('opencl_support', False)
+        metal_support = data.get('metal_support', False)
+        
+        # Clone repository if needed
+        if repo_option == 'clone':
+            repo_url = "https://github.com/ggerganov/llama.cpp.git"
+            target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".." , "ik_llama.cpp")
+            
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+            
+            subprocess.run(
+                ["git", "clone", repo_url, target_dir],
+                check=True
+            )
+        
+        # Prepare build options
+        build_options = {
+            "cuda": cuda_support,
+            "opencl": opencl_support,
+            "metal": metal_support
+        }
+        
+        # Start the build process
+        return build_project()
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error starting build: {str(e)}"}), 500
+
+@app.route('/api/clone-repository', methods=['POST'])
+def clone_repository():
+    try:
+        # Define the repository URL and target directory
+        repo_url = "https://github.com/ggerganov/llama.cpp.git"
+        target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+        
+        # Check if directory already exists
+        if os.path.exists(target_dir):
+            return jsonify({"message": "Repository directory already exists. Using existing repository."}), 200
+        
+        # Clone the repository
+        result = subprocess.run(
+            ["git", "clone", repo_url, target_dir],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        return jsonify({"message": "Repository cloned successfully", "details": result.stdout}), 200
+    except subprocess.CalledProcessError as e:
+        return jsonify({"message": "Failed to clone repository", "error": e.stderr}), 500
+    except Exception as e:
+        return jsonify({"message": "An error occurred", "error": str(e)}), 500
+
+@app.route('/api/build', methods=['POST'])
+def start_build():
+    try:
+        # Get build options from request
+        options = request.json
+        
+        # Define the repository directory
+        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+        
+        # Check if repository option is to clone
+        if options.get("repo_option") == "clone":
+            # Clone the repository if it doesn't exist or if we're forcing a fresh clone
+            if os.path.exists(repo_dir):
+                shutil.rmtree(repo_dir)
+            
+            # Clone the repository
+            clone_result = subprocess.run(
+                ["git", "clone", "https://github.com/ggerganov/llama.cpp.git", repo_dir],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+        
+        # Check if directory exists after potential cloning
+        if not os.path.exists(repo_dir):
+            return jsonify({"message": "Repository directory does not exist. Please clone the repository first."}), 400
+        
+        # Prepare build command
+        build_cmd = ["cmake", "-B", "build"]
+        
+        # Add options based on user selection
+        if options.get("cuda_support", False):
+            build_cmd.append("-DLLAMA_CUDA=ON")
+        
+        if options.get("opencl_support", False):
+            build_cmd.append("-DLLAMA_OPENCL=ON")
+        
+        if options.get("metal_support", False) and platform.system() == "Darwin":
+            build_cmd.append("-DLLAMA_METAL=ON")
+        
+        # Start the build process in a separate thread
+        thread = threading.Thread(target=run_build, args=(repo_dir, build_cmd))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"message": "Build process started"}), 200
+    except Exception as e:
+        return jsonify({"message": "An error occurred", "error": str(e)}), 500
+
+@app.route('/api/build-project', methods=['POST'])
+def build_project():
+    try:
+        # Get build options from request
+        options = request.json
+        
+        # Define the repository directory
+        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+        
+        # Check if directory exists
+        if not os.path.exists(repo_dir):
+            return jsonify({"message": "Repository directory does not exist. Please clone the repository first."}), 400
+        
+        # Prepare build command
+        build_cmd = ["cmake", "-B", "build"]
+        
+        # Add options based on user selection
+        if options.get("cuda", False):
+            build_cmd.append("-DLLAMA_CUDA=ON")
+        
+        if options.get("opencl", False):
+            build_cmd.append("-DLLAMA_OPENCL=ON")
+        
+        if options.get("metal", False) and platform.system() == "Darwin":
+            build_cmd.append("-DLLAMA_METAL=ON")
+        
+        # Start the build process in a separate thread
+        thread = threading.Thread(target=run_build, args=(repo_dir, build_cmd))
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"message": "Build process started"}), 200
+    except Exception as e:
+        return jsonify({"message": "An error occurred", "error": str(e)}), 500
+
+@app.route('/api/build-status', methods=['GET'])
+def get_build_status():
+    # Check if build log exists and read its content
+    build_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_log.txt")
+    
+    if not os.path.exists(build_log_path):
+        return jsonify({"status": "Not Started", "log": ""}), 200
+    
+    with open(build_log_path, 'r') as f:
+        log_content = f.read()
+    
+    # Check if build is complete
+    if "Build completed successfully" in log_content:
+        status = "Success"
+    elif "Build failed" in log_content:
+        status = "Failed"
+    else:
+        status = "In Progress"
+    
+    return jsonify({"status": status, "log": log_content}), 200
+
+@app.route('/api/clear-logs', methods=['POST'])
+def clear_logs():
+    try:
+        # Define the build log path
+        build_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_log.txt")
+        
+        # Check if file exists
+        if os.path.exists(build_log_path):
+            # Clear the file
+            with open(build_log_path, 'w') as f:
+                f.write("Logs cleared at " + time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+            
+            return jsonify({"message": "Logs cleared successfully"}), 200
+        else:
+            return jsonify({"message": "No logs file found"}), 200
+    except Exception as e:
+        return jsonify({"message": "An error occurred", "error": str(e)}), 500
+
+def run_build(repo_dir, build_cmd):
+    try:
+        # Create or clear the build log file
+        build_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_log.txt")
+        with open(build_log_path, 'w') as f:
+            f.write("Build started at " + time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+            f.write("Build command: " + " ".join(build_cmd) + "\n\n")
+        
+        # Change to repository directory
+        os.chdir(repo_dir)
+        
+        # Run CMake configuration
+        with open(build_log_path, 'a') as f:
+            f.write("Running CMake configuration...\n")
+        
+        cmake_process = subprocess.run(
+            build_cmd,
+            capture_output=True,
+            text=True
+        )
+        
+        with open(build_log_path, 'a') as f:
+            f.write(cmake_process.stdout + "\n")
+            if cmake_process.stderr:
+                f.write("Errors:\n" + cmake_process.stderr + "\n")
+        
+        if cmake_process.returncode != 0:
+            with open(build_log_path, 'a') as f:
+                f.write("Build failed at CMake configuration step\n")
+            return
+        
+        # Run the actual build
+        with open(build_log_path, 'a') as f:
+            f.write("\nRunning build...\n")
+        
+        build_process = subprocess.run(
+            ["cmake", "--build", "build", "--parallel"],
+            capture_output=True,
+            text=True
+        )
+        
+        with open(build_log_path, 'a') as f:
+            f.write(build_process.stdout + "\n")
+            if build_process.stderr:
+                f.write("Errors:\n" + build_process.stderr + "\n")
+        
+        if build_process.returncode == 0:
+            with open(build_log_path, 'a') as f:
+                f.write("\nBuild completed successfully at " + time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+        else:
+            with open(build_log_path, 'a') as f:
+                f.write("\nBuild failed at " + time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+    
+    except Exception as e:
+        with open(build_log_path, 'a') as f:
+            f.write("\nBuild failed with exception: " + str(e) + "\n")
 
 @app.route('/<path:filename>')
 def serve_static(filename):
