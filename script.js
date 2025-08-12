@@ -1143,8 +1143,7 @@ class IkLlamaDashboard {
                 
                 // Update model status
                 if (this.modelStatusIcon && this.modelStatusText) {
-                    // Don't overwrite "Model loaded" status unless the API explicitly says the model is loaded
-                    // This prevents the status from being reset after a successful model load
+                    // Always trust the API's model_loaded status
                     const currentStatus = this.modelStatusText.textContent;
                     console.log('checkRepoStatus - Current status:', currentStatus, 'API model_loaded:', data.model_loaded); // Debug log
                     
@@ -1152,17 +1151,12 @@ class IkLlamaDashboard {
                         this.modelStatusIcon.textContent = '✅';
                         this.modelStatusText.textContent = data.model_name || 'Model loaded';
                         console.log('Updated status to:', this.modelStatusText.textContent); // Debug log
-                    } else if (currentStatus !== 'Model loaded') {
-                        // Only update to "No model loaded" if we're not currently showing "Model loaded"
-                        // This preserves the status set by the model loading process
+                    } else {
+                        // Always update to match the API status
                         this.modelStatusIcon.textContent = '❓';
                         this.modelStatusText.textContent = 'No model loaded';
                         console.log('Updated status to: No model loaded'); // Debug log
-                    } else {
-                        console.log('Preserving "Model loaded" status despite API saying model_loaded=false'); // Debug log
                     }
-                    // If currentStatus is "Model loaded" and data.model_loaded is false,
-                    // we keep the current status to avoid overwriting a successful load
                 }
                 
                 // Update server status

@@ -557,10 +557,36 @@ class LlamaServerManager:
             print(f"Health check error: {e}")
             return False
 
+    def server_health_check(self):
+        """Check if the llama-server is healthy and responding"""
+        try:
+            # First try to connect to the server regardless of internal state
+            response = requests.get(f"{self.server_url}/v1/models", timeout=5)
+            if response.status_code == 200:
+                # If server is responding but we didn't know it was running, update our state
+                if not self.is_server_running:
+                    print("Detected externally running server, updating internal state")
+                    self.is_server_running = True
+                return True, "Server is healthy"
+            else:
+                return False, f"Server returned status {response.status_code}"
+        except requests.exceptions.ConnectionError:
+            # If we thought the server was running but it's not responding, update state
+            if self.is_server_running:
+                print("Server marked as running but not responding, updating state")
+                self.is_server_running = False
+            return False, "Connection refused - server may have crashed"
+        except requests.exceptions.Timeout:
+            return False, "Server timeout - may be overloaded"
+        except Exception as e:
+            return False, f"Health check failed: {str(e)}"
+
     def chat_completion(self, messages, config):
         """Send chat completion request with proper HTTP/1.1 chunked encoding handling"""
-        if not self.is_server_running:
-            return False, "Server not running"
+        # Check if server is actually running by trying to connect
+        healthy, health_msg = self.server_health_check()
+        if not healthy:
+            return False, f"Server not available: {health_msg}"
         
         # Prepare the request data
         data = {
@@ -593,7 +619,7 @@ class LlamaServerManager:
                 json=data,
                 headers=headers,
                 stream=True,
-                timeout=(15, 120),  # Increased timeouts for better streaming stability
+                timeout=(30, 300),  # Increased timeouts: 30s connect, 5min read
                 verify=False
             )
             
@@ -602,8 +628,12 @@ class LlamaServerManager:
             else:
                 return False, f"Server error: {response.status_code}"
                 
-        except Exception as e:
+        except requests.exceptions.Timeout as e:
+            return False, f"Request timeout: {str(e)}"
+        except requests.exceptions.ConnectionError as e:
             return False, f"Connection error: {str(e)}"
+        except Exception as e:
+            return False, f"Request error: {str(e)}"
 
     def get_models(self):
         """Get available models from server"""
@@ -1320,6 +1350,27 @@ def discover_models():
             'error': str(e)
         }), 500
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint"""
+    return jsonify({'status': 'ok', 'timestamp': time.time()})
+
+@app.route('/api/server-health', methods=['GET'])
+def server_health():
+    """Check llama-server health"""
+    try:
+        if not llama_server.is_server_running:
+            return jsonify({'healthy': False, 'error': 'Server not running'})
+        
+        # Try to ping the llama-server
+        response = requests.get(f"{llama_server.server_url}/health", timeout=5)
+        if response.status_code == 200:
+            return jsonify({'healthy': True, 'server_url': llama_server.server_url})
+        else:
+            return jsonify({'healthy': False, 'error': f'Server returned status {response.status_code}'})
+    except Exception as e:
+        return jsonify({'healthy': False, 'error': str(e)})
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Chat endpoint with streaming response using queue-based system"""
@@ -1363,31 +1414,67 @@ def chat():
         
         # Start the LLM request in a background thread
         def start_llm_request():
-            try:
-                log_to_file(f"Starting chat completion with messages: {messages}")
-                log_to_file(f"Config: {config}")
-                
-                success, response = llama_server.chat_completion(messages, config)
-                if not success:
-                    log_to_file(f"Chat completion failed: {response}")
-                    queue_obj = streaming_manager.get_queue(request_id)
-                    if queue_obj:
-                        queue_obj.put({'error': response})
-                    streaming_manager.mark_complete(request_id)
-                    return
-                
-                log_to_file(f"Chat completion successful, response status: {response.status_code}")
-                log_to_file(f"Response headers: {dict(response.headers)}")
-                
-                # Process the response in a separate thread
-                process_llm_response(streaming_manager, request_id, response, log_file)
-                
-            except Exception as e:
-                log_to_file(f"Error starting LLM request: {e}")
-                queue_obj = streaming_manager.get_queue(request_id)
-                if queue_obj:
-                    queue_obj.put({'error': str(e)})
-                streaming_manager.mark_complete(request_id)
+            max_retries = 3
+            retry_delay = 2  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    log_to_file(f"Starting chat completion attempt {attempt + 1}/{max_retries}")
+                    log_to_file(f"Messages: {messages}")
+                    log_to_file(f"Config: {config}")
+                    
+                    # Check server health before making request
+                    healthy, health_msg = llama_server.server_health_check()
+                    if not healthy:
+                        log_to_file(f"Server health check failed: {health_msg}")
+                        if attempt < max_retries - 1:
+                            log_to_file(f"Retrying in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            queue_obj = streaming_manager.get_queue(request_id)
+                            if queue_obj:
+                                queue_obj.put({'error': f'Server health check failed: {health_msg}'})
+                            streaming_manager.mark_complete(request_id)
+                            return
+                    
+                    success, response = llama_server.chat_completion(messages, config)
+                    if not success:
+                        log_to_file(f"Chat completion failed: {response}")
+                        
+                        # Check if it's a server error that might be recoverable
+                        if "503" in str(response) or "Connection" in str(response):
+                            if attempt < max_retries - 1:
+                                log_to_file(f"Server error, retrying in {retry_delay} seconds...")
+                                time.sleep(retry_delay)
+                                retry_delay *= 2  # Exponential backoff
+                                continue
+                        
+                        queue_obj = streaming_manager.get_queue(request_id)
+                        if queue_obj:
+                            queue_obj.put({'error': response})
+                        streaming_manager.mark_complete(request_id)
+                        return
+                    
+                    log_to_file(f"Chat completion successful, response status: {response.status_code}")
+                    log_to_file(f"Response headers: {dict(response.headers)}")
+                    
+                    # Process the response in a separate thread
+                    process_llm_response(streaming_manager, request_id, response, log_file)
+                    return  # Success, exit retry loop
+                    
+                except Exception as e:
+                    log_to_file(f"Error in chat completion attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        log_to_file(f"Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        # Final attempt failed
+                        queue_obj = streaming_manager.get_queue(request_id)
+                        if queue_obj:
+                            queue_obj.put({'error': f'Request failed after {max_retries} attempts: {str(e)}'})
+                        streaming_manager.mark_complete(request_id)
         
         # Start the background thread
         threading.Thread(target=start_llm_request, daemon=True).start()
@@ -1500,8 +1587,8 @@ def get_status():
     repo_exists = os.path.exists(repo_dir)
     
     # Check if model is actually loaded by making a simple API call to the server
-    model_loaded = False
-    model_name = ""
+    model_loaded = llama_server.is_server_running  # Default to server running status
+    model_name = info.get('model', '')
     if llama_server.is_server_running:
         try:
             # Try to get model info from the server
@@ -1511,11 +1598,11 @@ def get_status():
                 if model_data and isinstance(model_data, list) and len(model_data) > 0:
                     model_loaded = True
                     model_name = model_data[0].get('id', info.get('model', ''))
+                # If the API returns successfully but no models, we keep the default value
+                # This ensures compatibility with the UI which expects model_loaded to be true when server is running
         except Exception as e:
             logger.warning(f"Error checking model status: {e}")
-            # Fall back to server running status if we can't check model status
-            model_loaded = llama_server.is_server_running
-            model_name = info.get('model', '')
+            # We already set the default values above, so no need to do anything here
     
     return jsonify({
         'is_loaded': model_loaded,

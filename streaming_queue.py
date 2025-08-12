@@ -173,15 +173,34 @@ def process_llm_response(streaming_manager, request_id, response, log_file):
         
         except requests.exceptions.ChunkedEncodingError as e:
             log_to_file(f"ChunkedEncodingError: {e}")
-            # Instead of treating this as expected, check if we received any content
+            # ChunkedEncodingError often occurs when the server closes the connection after sending all data
+            # This is common with streaming responses and usually indicates successful completion
             if line_count > 0:
-                log_to_file("Stream ended with chunked encoding error after receiving content - marking as complete")
+                log_to_file(f"Stream ended with chunked encoding error after receiving {line_count} lines - treating as successful completion")
+                # Process any remaining buffer content before marking complete
+                if buffer.strip():
+                    log_to_file(f"Processing final buffer content: {repr(buffer)}")
+                    for line in buffer.split('\n'):
+                        line = line.strip()
+                        if line.startswith('data: '):
+                            data_content = line[6:].strip()
+                            if data_content and data_content != '[DONE]':
+                                try:
+                                    chunk_data = json.loads(data_content)
+                                    if 'choices' in chunk_data and chunk_data['choices']:
+                                        choice = chunk_data['choices'][0]
+                                        delta = choice.get('delta', {})
+                                        if 'content' in delta and delta['content'] is not None:
+                                            log_to_file(f"Final token from buffer: {repr(delta['content'])}")
+                                            queue_obj.put({'token': delta['content']})
+                                except json.JSONDecodeError:
+                                    continue
                 streaming_manager.mark_complete(request_id)
                 return
             else:
-                # If we didn't receive any content, this is an actual error
-                log_to_file("Stream ended with chunked encoding error before receiving any content - this is an error")
-                queue_obj.put({'error': 'Connection error: The server closed the connection unexpectedly. Please try again.'})
+                # If we didn't receive any content, this might be an actual error
+                log_to_file("Stream ended with chunked encoding error before receiving any content - this might be an error")
+                queue_obj.put({'error': 'Connection error: The server closed the connection before sending any data. Please try again.'})
                 streaming_manager.mark_complete(request_id)
                 return
             
