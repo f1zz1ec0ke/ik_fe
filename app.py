@@ -35,10 +35,10 @@ class LlamaServerManager:
     def find_llama_server(self):
         """Find llama-server executable"""
         possible_paths = [
-            os.path.join("..", "ik_llama.cpp", "build", "bin", "llama-server"),
-            os.path.join("..", "ik_llama.cpp", "build", "bin", "llama-server.exe"),
-            os.path.join("..", "ik_llama.cpp", "llama-server"),
-            os.path.join("..", "ik_llama.cpp", "llama-server.exe"),
+            os.path.join("ik_llama.cpp", "build", "bin", "llama-server"),
+            os.path.join("ik_llama.cpp", "build", "bin", "llama-server.exe"),
+            os.path.join("ik_llama.cpp", "llama-server"),
+            os.path.join("ik_llama.cpp", "llama-server.exe"),
             "llama-server",
             "llama-server.exe"
         ]
@@ -249,9 +249,9 @@ def index():
 @app.route('/api/clone-repository', methods=['POST'])
 def clone_repository():
     try:
-        # Define the repository URL and target directory
+        # Define the repository URL and target directory - create ik_llama.cpp in current directory
         repo_url = "https://github.com/ggerganov/llama.cpp.git"
-        target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+        target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
         
         # Check if directory already exists
         if os.path.exists(target_dir):
@@ -278,8 +278,8 @@ def build():
         # Get build options from request
         options = request.json
         
-        # Define the repository directory
-        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+        # Define the repository directory - create ik_llama.cpp in current directory
+        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
         
         # Check if repository option is to clone
         if options.get("repo_option") == "clone":
@@ -305,6 +305,56 @@ def build():
         # Add options based on user selection
         if options.get("cuda_support", False):
             build_cmd.append("-DLLAMA_CUDA=ON")
+            
+            # Add additional CMake flags to help find CUDA
+            if platform.system() == "Windows":
+                # Try to detect CUDA installation for CMake configuration
+                program_files = os.environ.get('PROGRAMFILES', 'C:\\Program Files')
+                cuda_base = os.path.join(program_files, 'NVIDIA GPU Computing Toolkit', 'CUDA')
+                
+                if os.path.exists(cuda_base):
+                    # Find all CUDA versions
+                    cuda_versions = []
+                    for item in os.listdir(cuda_base):
+                        cuda_version_path = os.path.join(cuda_base, item)
+                        if os.path.isdir(cuda_version_path) and item.startswith('v'):
+                            cuda_versions.append(cuda_version_path)
+                    
+                    # Use the latest version found
+                    if cuda_versions:
+                        cuda_versions.sort(reverse=True)
+                        latest_cuda = cuda_versions[0]
+                        
+                        # Add CMake flags to help find CUDA
+                        build_cmd.append(f"-DCUDAToolkit_ROOT={latest_cuda}")
+                        build_cmd.append(f"-DCUDA_TOOLKIT_ROOT_DIR={latest_cuda}")
+                        
+                        # Set the CUDA compiler path explicitly
+                        nvcc_path = os.path.join(latest_cuda, 'bin', 'nvcc.exe')
+                        if os.path.exists(nvcc_path):
+                            build_cmd.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
+            
+            elif platform.system() == "Linux":
+                # Check common Linux CUDA installation paths
+                linux_cuda_paths = ['/usr/local/cuda', '/opt/cuda']
+                
+                # Also check versioned paths
+                for base_path in ['/usr/local', '/opt']:
+                    if os.path.exists(base_path):
+                        for item in os.listdir(base_path):
+                            if item.startswith('cuda-'):
+                                cuda_version_path = os.path.join(base_path, item)
+                                if os.path.isdir(cuda_version_path):
+                                    linux_cuda_paths.append(cuda_version_path)
+                
+                # Find the first valid CUDA installation
+                for cuda_path in linux_cuda_paths:
+                    nvcc_path = os.path.join(cuda_path, 'bin', 'nvcc')
+                    if os.path.exists(cuda_path) and os.path.exists(nvcc_path):
+                        build_cmd.append(f"-DCUDAToolkit_ROOT={cuda_path}")
+                        build_cmd.append(f"-DCUDA_TOOLKIT_ROOT_DIR={cuda_path}")
+                        build_cmd.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
+                        break
         
         if options.get("opencl_support", False):
             build_cmd.append("-DLLAMA_OPENCL=ON")
@@ -327,8 +377,8 @@ def build_project():
         # Get build options from request
         options = request.json
         
-        # Define the repository directory
-        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+        # Define the repository directory - create ik_llama.cpp in current directory
+        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
         
         # Check if directory exists
         if not os.path.exists(repo_dir):
@@ -340,6 +390,56 @@ def build_project():
         # Add options based on user selection
         if options.get("cuda", False):
             build_cmd.append("-DLLAMA_CUDA=ON")
+            
+            # Add additional CMake flags to help find CUDA
+            if platform.system() == "Windows":
+                # Try to detect CUDA installation for CMake configuration
+                program_files = os.environ.get('PROGRAMFILES', 'C:\\Program Files')
+                cuda_base = os.path.join(program_files, 'NVIDIA GPU Computing Toolkit', 'CUDA')
+                
+                if os.path.exists(cuda_base):
+                    # Find all CUDA versions
+                    cuda_versions = []
+                    for item in os.listdir(cuda_base):
+                        cuda_version_path = os.path.join(cuda_base, item)
+                        if os.path.isdir(cuda_version_path) and item.startswith('v'):
+                            cuda_versions.append(cuda_version_path)
+                    
+                    # Use the latest version found
+                    if cuda_versions:
+                        cuda_versions.sort(reverse=True)
+                        latest_cuda = cuda_versions[0]
+                        
+                        # Add CMake flags to help find CUDA
+                        build_cmd.append(f"-DCUDAToolkit_ROOT={latest_cuda}")
+                        build_cmd.append(f"-DCUDA_TOOLKIT_ROOT_DIR={latest_cuda}")
+                        
+                        # Set the CUDA compiler path explicitly
+                        nvcc_path = os.path.join(latest_cuda, 'bin', 'nvcc.exe')
+                        if os.path.exists(nvcc_path):
+                            build_cmd.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
+            
+            elif platform.system() == "Linux":
+                # Check common Linux CUDA installation paths
+                linux_cuda_paths = ['/usr/local/cuda', '/opt/cuda']
+                
+                # Also check versioned paths
+                for base_path in ['/usr/local', '/opt']:
+                    if os.path.exists(base_path):
+                        for item in os.listdir(base_path):
+                            if item.startswith('cuda-'):
+                                cuda_version_path = os.path.join(base_path, item)
+                                if os.path.isdir(cuda_version_path):
+                                    linux_cuda_paths.append(cuda_version_path)
+                
+                # Find the first valid CUDA installation
+                for cuda_path in linux_cuda_paths:
+                    nvcc_path = os.path.join(cuda_path, 'bin', 'nvcc')
+                    if os.path.exists(cuda_path) and os.path.exists(nvcc_path):
+                        build_cmd.append(f"-DCUDAToolkit_ROOT={cuda_path}")
+                        build_cmd.append(f"-DCUDA_TOOLKIT_ROOT_DIR={cuda_path}")
+                        build_cmd.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
+                        break
         
         if options.get("opencl", False):
             build_cmd.append("-DLLAMA_OPENCL=ON")
@@ -403,17 +503,117 @@ def run_build(repo_dir, build_cmd):
             f.write("Build started at " + time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
             f.write("Build command: " + " ".join(build_cmd) + "\n\n")
         
+        # Check if CMake is available
+        try:
+            cmake_check = subprocess.run(["cmake", "--version"], capture_output=True, text=True)
+            if cmake_check.returncode != 0:
+                with open(build_log_path, 'a') as f:
+                    f.write("ERROR: CMake is not installed or not in PATH.\n")
+                    f.write("Please install CMake from https://cmake.org/download/\n")
+                    f.write("Or install via Visual Studio Installer, Chocolatey, or winget.\n")
+                    f.write("Build failed - CMake not found\n")
+                return
+        except FileNotFoundError:
+            with open(build_log_path, 'a') as f:
+                f.write("ERROR: CMake is not installed or not in PATH.\n")
+                f.write("Please install CMake from https://cmake.org/download/\n")
+                f.write("Installation options:\n")
+                f.write("1. Download from https://cmake.org/download/\n")
+                f.write("2. Via Visual Studio Installer (C++ CMake tools)\n")
+                f.write("3. Via Chocolatey: choco install cmake\n")
+                f.write("4. Via winget: winget install Kitware.CMake\n")
+                f.write("Build failed - CMake not found\n")
+            return
+        
+        # Check if repository directory exists
+        if not os.path.exists(repo_dir):
+            with open(build_log_path, 'a') as f:
+                f.write(f"ERROR: Repository directory does not exist: {repo_dir}\n")
+                f.write("Please clone the llama.cpp repository first.\n")
+                f.write("Build failed - Repository not found\n")
+            return
+        
         # Change to repository directory
         os.chdir(repo_dir)
+        
+        # Set up environment for CUDA detection
+        env = os.environ.copy()
+        
+        # Try to detect CUDA installation paths
+        cuda_paths = []
+        
+        # Windows CUDA paths
+        if platform.system() == "Windows":
+            # Check common Windows CUDA installation paths
+            program_files = os.environ.get('PROGRAMFILES', 'C:\\Program Files')
+            cuda_base = os.path.join(program_files, 'NVIDIA GPU Computing Toolkit', 'CUDA')
+            
+            if os.path.exists(cuda_base):
+                # Find all CUDA versions
+                for item in os.listdir(cuda_base):
+                    cuda_version_path = os.path.join(cuda_base, item)
+                    if os.path.isdir(cuda_version_path) and item.startswith('v'):
+                        cuda_paths.append(cuda_version_path)
+                
+                # Use the latest version found
+                if cuda_paths:
+                    cuda_paths.sort(reverse=True)  # Sort to get latest version first
+                    latest_cuda = cuda_paths[0]
+                    
+                    # Set CUDA environment variables
+                    env['CUDA_PATH'] = latest_cuda
+                    env['CUDA_TOOLKIT_ROOT_DIR'] = latest_cuda
+                    
+                    # Add CUDA bin to PATH if not already there
+                    cuda_bin = os.path.join(latest_cuda, 'bin')
+                    if cuda_bin not in env.get('PATH', ''):
+                        env['PATH'] = cuda_bin + os.pathsep + env.get('PATH', '')
+                    
+                    with open(build_log_path, 'a') as f:
+                        f.write(f"Detected CUDA installation at: {latest_cuda}\n")
+                        f.write(f"Added CUDA bin to PATH: {cuda_bin}\n\n")
+        
+        # Linux CUDA paths
+        elif platform.system() == "Linux":
+            # Check common Linux CUDA installation paths
+            linux_cuda_paths = ['/usr/local/cuda', '/opt/cuda']
+            
+            # Also check versioned paths
+            for base_path in ['/usr/local', '/opt']:
+                if os.path.exists(base_path):
+                    for item in os.listdir(base_path):
+                        if item.startswith('cuda-'):
+                            cuda_version_path = os.path.join(base_path, item)
+                            if os.path.isdir(cuda_version_path):
+                                linux_cuda_paths.append(cuda_version_path)
+            
+            # Find the first valid CUDA installation
+            for cuda_path in linux_cuda_paths:
+                if os.path.exists(cuda_path) and os.path.exists(os.path.join(cuda_path, 'bin', 'nvcc')):
+                    env['CUDA_PATH'] = cuda_path
+                    env['CUDA_TOOLKIT_ROOT_DIR'] = cuda_path
+                    
+                    # Add CUDA bin to PATH if not already there
+                    cuda_bin = os.path.join(cuda_path, 'bin')
+                    if cuda_bin not in env.get('PATH', ''):
+                        env['PATH'] = cuda_bin + ':' + env.get('PATH', '')
+                    
+                    with open(build_log_path, 'a') as f:
+                        f.write(f"Detected CUDA installation at: {cuda_path}\n")
+                        f.write(f"Added CUDA bin to PATH: {cuda_bin}\n\n")
+                    break
         
         # Run CMake configuration
         with open(build_log_path, 'a') as f:
             f.write("Running CMake configuration...\n")
+            f.write(f"Environment CUDA_PATH: {env.get('CUDA_PATH', 'Not set')}\n")
+            f.write(f"Environment PATH: {env.get('PATH', 'Not set')[:200]}...\n\n")
         
         cmake_process = subprocess.run(
             build_cmd,
             capture_output=True,
-            text=True
+            text=True,
+            env=env
         )
         
         with open(build_log_path, 'a') as f:
@@ -433,7 +633,8 @@ def run_build(repo_dir, build_cmd):
         build_process = subprocess.run(
             ["cmake", "--build", "build", "--parallel"],
             capture_output=True,
-            text=True
+            text=True,
+            env=env
         )
         
         with open(build_log_path, 'a') as f:
@@ -627,8 +828,8 @@ def get_status():
         else:
             build_status = "In Progress"
     
-    # Check if repository exists
-    repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+    # Check if repository exists - create ik_llama.cpp in current directory
+    repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
     repo_exists = os.path.exists(repo_dir)
     
     return jsonify({

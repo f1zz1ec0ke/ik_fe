@@ -1,6 +1,10 @@
-Build started at 2025-08-12 01:36:24
-Build command: cmake -B build -DLLAMA_CUDA=ON
+Build started at 2025-08-12 02:06:32
+Build command: cmake -B build -DLLAMA_CUDA=ON -DCUDAToolkit_ROOT=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0 -DCUDA_TOOLKIT_ROOT_DIR=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0 -DCMAKE_CUDA_COMPILER=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\bin\nvcc.exe
+
+Detected CUDA installation at: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0
+Added CUDA bin to PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\bin
 
 Running CMake configuration...
+Environment CUDA_PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0
+Environment PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\bin;C:\Program Files\Python312\Scripts\;C:\Program Files\Python312\;C:\VulkanSDK\1.4.304.1\Bin;C:\Program Files\Common Files\Oracle\Java\javapa...
 
-Build failed with exception: [WinError 2] The system cannot find the file specified
