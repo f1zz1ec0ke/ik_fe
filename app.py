@@ -737,8 +737,9 @@ class LlamaServerManager:
     def server_health_check(self):
         """Check if the llama-server is healthy and responding"""
         try:
-            # First try to connect to the server regardless of internal state
-            response = requests.get(f"{self.server_url}/v1/models", timeout=5)
+            # Use a lightweight GET request to /v1/models instead of a full chat completion
+            # This is much less resource intensive than the previous health check
+            response = requests.get(f"{self.server_url}/v1/models", timeout=3)
             if response.status_code == 200:
                 # If server is responding but we didn't know it was running, update our state
                 if not self.is_server_running:
@@ -760,10 +761,12 @@ class LlamaServerManager:
 
     def chat_completion(self, messages, config):
         """Send chat completion request with proper HTTP/1.1 chunked encoding handling"""
-        # Check if server is actually running by trying to connect
-        healthy, health_msg = self.server_health_check()
-        if not healthy:
-            return False, f"Server not available: {health_msg}"
+        # Only check server health if we think it's not running
+        # This reduces unnecessary health checks that might overwhelm the server
+        if not self.is_server_running:
+            healthy, health_msg = self.server_health_check()
+            if not healthy:
+                return False, f"Server not available: {health_msg}"
         
         # Prepare the request data
         data = {
@@ -1733,13 +1736,18 @@ def get_version():
             'error': str(e)
         }), 500
 
+_model_status_cache = None
+_model_status_last_update = 0
+
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Get current status"""
     global build_in_progress
-    
+    global _model_status_cache
+    global _model_status_last_update
+
     info = llama_server.get_server_info()
-    
+
     # Check build status using the global variable
     if build_in_progress:
         build_status = "In Progress"
@@ -1747,40 +1755,49 @@ def get_status():
         # Check build log for final status
         build_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_log.txt")
         build_status = "Not Started"
-        
+
         if os.path.exists(build_log_path):
             with open(build_log_path, 'r') as f:
                 log_content = f.read()
-            
+
             if "Build completed successfully" in log_content:
                 build_status = "Success"
             elif "Build failed" in log_content:
                 build_status = "Failed"
             else:
                 build_status = "Not Started"
-    
+
     # Check if repository exists - create ik_llama.cpp in current directory
     repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
     repo_exists = os.path.exists(repo_dir)
-    
+
     # Check if model is actually loaded by making a simple API call to the server
     model_loaded = llama_server.is_server_running  # Default to server running status
     model_name = info.get('model', '')
     if llama_server.is_server_running:
-        try:
-            # Try to get model info from the server
-            response = requests.get(f"{llama_server.server_url}/v1/models", timeout=2)
-            if response.status_code == 200:
-                model_data = response.json()
-                if model_data and isinstance(model_data, list) and len(model_data) > 0:
-                    model_loaded = True
-                    model_name = model_data[0].get('id', info.get('model', ''))
-                # If the API returns successfully but no models, we keep the default value
-                # This ensures compatibility with the UI which expects model_loaded to be true when server is running
-        except Exception as e:
-            logger.warning(f"Error checking model status: {e}")
-            # We already set the default values above, so no need to do anything here
-    
+        if time.time() - _model_status_last_update < 60 and _model_status_cache:
+             model_loaded = _model_status_cache['model_loaded']
+             model_name = _model_status_cache['model_name']
+        else:
+            try:
+                # Try to get model info from the server
+                response = requests.get(f"{llama_server.server_url}/v1/models", timeout=2)
+                if response.status_code == 200:
+                    model_data = response.json()
+                    if model_data and isinstance(model_data, list) and len(model_data) > 0:
+                        model_loaded = True
+                        model_name = model_data[0].get('id', info.get('model', ''))
+                    # If the API returns successfully but no models, we keep the default value
+                    # This ensures compatibility with the UI which expects model_loaded to be true when server is running
+                    _model_status_cache = {
+                        'model_loaded': model_loaded,
+                        'model_name': model_name
+                    }
+                    _model_status_last_update = time.time()
+            except Exception as e:
+                logger.warning(f"Error checking model status: {e}")
+                # We already set the default values above, so no need to do anything here
+
     return jsonify({
         'is_loaded': model_loaded,
         'is_generating': False,  # We'll implement this later
