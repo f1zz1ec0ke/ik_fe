@@ -1499,15 +1499,33 @@ def get_status():
     repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
     repo_exists = os.path.exists(repo_dir)
     
+    # Check if model is actually loaded by making a simple API call to the server
+    model_loaded = False
+    model_name = ""
+    if llama_server.is_server_running:
+        try:
+            # Try to get model info from the server
+            response = requests.get(f"{llama_server.server_url}/v1/models", timeout=2)
+            if response.status_code == 200:
+                model_data = response.json()
+                if model_data and isinstance(model_data, list) and len(model_data) > 0:
+                    model_loaded = True
+                    model_name = model_data[0].get('id', info.get('model', ''))
+        except Exception as e:
+            logger.warning(f"Error checking model status: {e}")
+            # Fall back to server running status if we can't check model status
+            model_loaded = llama_server.is_server_running
+            model_name = info.get('model', '')
+    
     return jsonify({
-        'is_loaded': llama_server.is_server_running,
+        'is_loaded': model_loaded,
         'is_generating': False,  # We'll implement this later
         'current_model': info.get('model', ''),
         'server_status': info['status'],
         'server_url': info['url'],
         'server_running': llama_server.is_server_running,
-        'model_loaded': llama_server.is_server_running,
-        'model_name': info.get('model', ''),
+        'model_loaded': model_loaded,
+        'model_name': model_name,
         'build_status': build_status,
         'repo_exists': repo_exists
     })

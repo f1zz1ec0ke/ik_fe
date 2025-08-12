@@ -173,9 +173,17 @@ def process_llm_response(streaming_manager, request_id, response, log_file):
         
         except requests.exceptions.ChunkedEncodingError as e:
             log_to_file(f"ChunkedEncodingError: {e}")
-            log_to_file("Stream ended due to chunked encoding error - this is expected with llama-server")
-            streaming_manager.mark_complete(request_id)
-            return
+            # Instead of treating this as expected, check if we received any content
+            if line_count > 0:
+                log_to_file("Stream ended with chunked encoding error after receiving content - marking as complete")
+                streaming_manager.mark_complete(request_id)
+                return
+            else:
+                # If we didn't receive any content, this is an actual error
+                log_to_file("Stream ended with chunked encoding error before receiving any content - this is an error")
+                queue_obj.put({'error': 'Connection error: The server closed the connection unexpectedly. Please try again.'})
+                streaming_manager.mark_complete(request_id)
+                return
             
         except Exception as e:
             log_to_file(f"Stream processing error: {e}")

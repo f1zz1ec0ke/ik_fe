@@ -1387,21 +1387,48 @@ class IkLlamaDashboard {
         const message = this.userInput.value.trim();
         if (!message) return;
         
-        // Check if model is loaded
-        const modelStatus = this.modelStatusText?.textContent;
-        console.log('Current model status:', modelStatus);
-        
-        // Check if model is loaded - accept "Model loaded" or any model name (not error states)
-        const isModelLoaded = modelStatus && 
-            modelStatus !== 'No model loaded' && 
-            modelStatus !== 'Loading model...' && 
-            modelStatus !== 'Model loading failed' &&
-            !modelStatus.includes('failed') &&
-            !modelStatus.includes('error');
+        // First check server status to ensure we have the latest model status
+        try {
+            const response = await fetch('/api/status');
+            const data = await response.json();
             
-        if (!isModelLoaded) {
-            this.addMessage('system', `Please load a model first. Current status: "${modelStatus}"`);
-            return;
+            console.log('Server status check:', data);
+            
+            if (!data.server_running) {
+                this.addMessage('system', 'The server is not running. Please start the server first.');
+                return;
+            }
+            
+            if (!data.model_loaded) {
+                this.addMessage('system', 'No model is loaded. Please load a model first.');
+                return;
+            }
+            
+            // Update model status display with the latest info
+            if (this.modelStatusIcon && this.modelStatusText) {
+                this.modelStatusIcon.textContent = '✅';
+                this.modelStatusText.textContent = data.model_name || 'Model loaded';
+            }
+        } catch (error) {
+            console.error('Error checking server status:', error);
+            // Fall back to UI-based check if API call fails
+            
+            // Check if model is loaded based on UI
+            const modelStatus = this.modelStatusText?.textContent;
+            console.log('Current model status (UI):', modelStatus);
+            
+            // Check if model is loaded - accept "Model loaded" or any model name (not error states)
+            const isModelLoaded = modelStatus && 
+                modelStatus !== 'No model loaded' && 
+                modelStatus !== 'Loading model...' && 
+                modelStatus !== 'Model loading failed' &&
+                !modelStatus.includes('failed') &&
+                !modelStatus.includes('error');
+                
+            if (!isModelLoaded) {
+                this.addMessage('system', `Please load a model first. Current status: "${modelStatus}"`);
+                return;
+            }
         }
         
         // Clear input and add user message
