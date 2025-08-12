@@ -4,6 +4,8 @@ class IkLlamaDashboard {
         this.currentModel = null;
         this.buildProgress = null;
         this.config = {};
+        this.buildEventSource = null;
+        this.isBuildInProgress = false;
         this.init();
     }
 
@@ -14,6 +16,7 @@ class IkLlamaDashboard {
         this.loadInitialData();
         this.startStatusUpdates();
         this.setupTheme();
+        this.checkVersion();
     }
 
     initializeElements() {
@@ -43,6 +46,8 @@ class IkLlamaDashboard {
         this.nextStep2Btn = document.getElementById('next-step-2');
         this.prevStep3Btn = document.getElementById('prev-step-3');
         this.startBuildBtn = document.getElementById('start-build');
+        this.versionIndicator = document.getElementById('version-indicator');
+        this.versionStatus = document.getElementById('version-status');
         this.repoOptions = document.getElementsByName('repo-option');
         this.cudaSupport = document.getElementById('cuda-support');
         this.openclSupport = document.getElementById('opencl-support');
@@ -89,8 +94,11 @@ class IkLlamaDashboard {
         this.nPredict = document.getElementById('n-predict');
         this.ctk = document.getElementById('ctk');
         this.topK = document.getElementById('top-k');
+        this.mlaAttn = document.getElementById('mla-attn');
+        this.amb = document.getElementById('amb');
         this.flashAttn = document.getElementById('flash-attn');
         this.fmoe = document.getElementById('fmoe');
+        this.mmap = document.getElementById('mmap');
         this.threads = document.getElementById('threads');
         this.nGpuLayers = document.getElementById('n-gpu-layers');
         this.nGpuLayersValue = document.getElementById('n-gpu-layers-value');
@@ -277,6 +285,22 @@ class IkLlamaDashboard {
             });
         }
         
+        // Chat Section
+        if (this.sendMessageBtn) {
+            this.sendMessageBtn.addEventListener('click', () => {
+                this.sendMessage();
+            });
+        }
+        
+        if (this.userInput) {
+            this.userInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            });
+        }
+        
         // Theme Toggle
         if (this.themeToggle) {
             this.themeToggle.addEventListener('click', () => {
@@ -384,36 +408,174 @@ class IkLlamaDashboard {
             this.startBuildBtn.textContent = 'Building...';
         }
         
-        // Send build request to server
-        fetch('/api/build', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                repo_option: repoOption,
-                cuda_support: cudaEnabled,
-                opencl_support: openclEnabled,
-                metal_support: metalEnabled
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log('Build started:', data);
-            // Navigate back to welcome screen to show status
-            this.navigateTo('welcome');
-            // Show logs modal
-            this.showLogsModal();
-        })
-        .catch(error => {
-            console.error('Error starting build:', error);
-            alert('Failed to start build. Please check the logs for details.');
-            // Re-enable start build button
-            if (this.startBuildBtn) {
-                this.startBuildBtn.disabled = false;
-                this.startBuildBtn.textContent = 'Start Build';
+        // Directly start the SSE stream (no need for the /api/build endpoint anymore)
+        this.startBuildStream();
+    }
+
+    startBuildStream() {
+        if (this.buildEventSource) {
+            this.buildEventSource.close();
+        }
+
+        // Get build options
+        const repoOption = Array.from(this.repoOptions).find(option => option.checked)?.value || 'clone';
+        const buildOptions = {
+            repo_option: repoOption,
+            cuda_support: document.getElementById('cuda-support').checked,
+            opencl_support: document.getElementById('opencl-support').checked,
+            metal_support: document.getElementById('metal-support').checked
+        };
+
+        // Show progress section
+        const progressSection = document.getElementById('build-progress-section');
+        const progressBar = document.getElementById('build-progress-bar');
+        const progressPercent = document.getElementById('build-progress-percent');
+        const progressStatus = document.getElementById('build-progress-status');
+        const cancelBtn = document.getElementById('cancel-build-btn');
+        const viewLogsBtn = document.getElementById('view-logs-btn');
+
+        if (progressSection) {
+            progressSection.style.display = 'block';
+        }
+        if (progressBar) {
+            progressBar.style.width = '0%';
+        }
+        if (progressPercent) {
+            progressPercent.textContent = '0%';
+        }
+        if (progressStatus) {
+            progressStatus.textContent = 'Initializing...';
+        }
+        if (cancelBtn) {
+            cancelBtn.style.display = 'inline-block';
+        }
+        if (viewLogsBtn) {
+            viewLogsBtn.style.display = 'none';
+        }
+        
+        this.isBuildInProgress = true;
+
+        // Create EventSource for SSE with build options as query parameters
+        const params = new URLSearchParams(buildOptions);
+        this.buildEventSource = new EventSource(`/api/build-stream?${params}`);
+
+        this.buildEventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.updateBuildProgress(data);
+            } catch (error) {
+                console.error('Error parsing SSE data:', error);
             }
-        });
+        };
+
+        this.buildEventSource.onerror = (event) => {
+            console.error('SSE connection error:', event);
+            if (this.isBuildInProgress) {
+                alert('Connection to build stream lost');
+                this.finalizeBuildProgress('error', 'Connection lost');
+            }
+        };
+    }
+
+    updateBuildProgress(data) {
+        const progressBar = document.getElementById('build-progress-bar');
+        const progressPercent = document.getElementById('build-progress-percent');
+        const progressStatus = document.getElementById('build-progress-status');
+
+        // Update progress bar
+        if (progressBar) {
+            progressBar.style.width = `${data.progress}%`;
+        }
+        if (progressPercent) {
+            progressPercent.textContent = `${data.progress}%`;
+        }
+        if (progressStatus) {
+            progressStatus.textContent = data.message;
+        }
+
+        // Update progress bar color based on status
+        if (progressBar) {
+            progressBar.className = 'progress-bar';
+            if (data.status === 'error') {
+                progressBar.classList.add('error');
+            } else if (data.status === 'success') {
+                progressBar.classList.add('success');
+            } else if (data.status === 'cloning') {
+                progressBar.classList.add('cloning');
+            } else if (data.status === 'configuring') {
+                progressBar.classList.add('configuring');
+            } else if (data.status === 'building') {
+                progressBar.classList.add('building');
+            }
+        }
+
+        // Handle completion
+        if (data.status === 'success' || data.status === 'error') {
+            this.finalizeBuildProgress(data.status, data.message);
+        }
+    }
+
+    finalizeBuildProgress(status, message) {
+        this.isBuildInProgress = false;
+        
+        const cancelBtn = document.getElementById('cancel-build-btn');
+        const viewLogsBtn = document.getElementById('view-logs-btn');
+        
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
+        if (viewLogsBtn) {
+            viewLogsBtn.style.display = 'inline-block';
+        }
+
+        if (this.buildEventSource) {
+            this.buildEventSource.close();
+            this.buildEventSource = null;
+        }
+
+        // Show notification
+        if (status === 'success') {
+            alert('Build completed successfully!');
+            // Refresh status after successful build
+            setTimeout(() => {
+                this.checkRepoStatus();
+            }, 1000);
+        } else {
+            alert(`Build failed: ${message}`);
+        }
+        
+        // Re-enable start build button
+        if (this.startBuildBtn) {
+            this.startBuildBtn.disabled = false;
+            this.startBuildBtn.textContent = 'Start Build';
+        }
+    }
+
+    cancelBuild() {
+        if (this.buildEventSource) {
+            this.buildEventSource.close();
+            this.buildEventSource = null;
+        }
+        
+        this.isBuildInProgress = false;
+        
+        // Hide progress section
+        const progressSection = document.getElementById('build-progress-section');
+        if (progressSection) {
+            progressSection.style.display = 'none';
+        }
+        
+        alert('Build cancelled');
+        
+        // Re-enable start build button
+        if (this.startBuildBtn) {
+            this.startBuildBtn.disabled = false;
+            this.startBuildBtn.textContent = 'Start Build';
+        }
+    }
+
+    viewBuildLogs() {
+        this.showLogsModal();
     }
 
     scanForModels() {
@@ -507,24 +669,160 @@ class IkLlamaDashboard {
             this.loadModelBtn.textContent = 'Loading...';
         }
         
+        // Update model status to loading
+        if (this.modelStatusIcon) {
+            this.modelStatusIcon.textContent = '⏳';
+        }
+        
+        if (this.modelStatusText) {
+            this.modelStatusText.textContent = 'Loading model...';
+        }
+        
         // Get configuration
         const config = this.getConfig();
         
-        // Send load model request
-        fetch('/api/load_model', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model_path: modelPath,
-                config: config
-            })
+        // First, check llama-server version
+        fetch('/api/version')
+        .then(response => response.json())
+        .then(versionData => {
+            console.log('llama-server version check:', versionData);
+            if (!versionData.success) {
+                throw new Error(`Version check failed: ${versionData.error}`);
+            }
+            
+            // Save the config for the stream endpoint
+            return fetch('/api/load_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model_path: modelPath,
+                    config: config
+                })
+            });
         })
         .then(response => response.json())
         .then(data => {
-            console.log('Model loaded:', data);
+            if (data.success) {
+                // Start streaming the loading progress
+                this.startModelLoadingStream(modelPath);
+            } else {
+                throw new Error(data.error || 'Failed to start model loading');
+            }
+        })
+        .catch(error => {
+            console.error('Error starting model load:', error);
+            this.finalizeModelLoadingProgress(false, error.message);
+        });
+    }
+
+    startModelLoadingStream(modelPath) {
+        // Create progress display similar to build progress
+        this.showModelLoadingProgress();
+        
+        const eventSource = new EventSource('/api/load_model_stream');
+        let isCompleted = false;  // Track if we've received a completion status
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('Model loading progress:', data);
+                
+                // Update progress display
+                this.updateModelLoadingProgress(data);
+                
+                if (data.status === 'success') {
+                    isCompleted = true;
+                    eventSource.close();
+                    this.finalizeModelLoadingProgress(true, 'Model loaded successfully');
+                } else if (data.status === 'error') {
+                    isCompleted = true;
+                    eventSource.close();
+                    this.finalizeModelLoadingProgress(false, data.message);
+                }
+            } catch (error) {
+                console.error('Error parsing model loading progress:', error);
+            }
+        };
+        
+        eventSource.onerror = (error) => {
+            console.error('Model loading stream error:', error);
+            eventSource.close();
             
+            // Only treat as error if we haven't already completed successfully
+            if (!isCompleted) {
+                this.finalizeModelLoadingProgress(false, 'Stream connection error');
+            }
+        };
+    }
+
+    showModelLoadingProgress() {
+        // Create or show progress modal similar to build progress
+        let progressModal = document.getElementById('model-loading-progress-modal');
+        if (!progressModal) {
+            progressModal = document.createElement('div');
+            progressModal.id = 'model-loading-progress-modal';
+            progressModal.className = 'modal active';
+            progressModal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Loading Model</h3>
+                        <button class="close-button" onclick="document.getElementById('model-loading-progress-modal').classList.remove('active')">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="model-loading-progress-fill"></div>
+                            </div>
+                            <div class="progress-text" id="model-loading-progress-text">Starting model loading...</div>
+                        </div>
+                        <div class="progress-log" id="model-loading-progress-log"></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(progressModal);
+        } else {
+            progressModal.classList.add('active');
+            // Reset progress
+            const progressFill = document.getElementById('model-loading-progress-fill');
+            const progressText = document.getElementById('model-loading-progress-text');
+            const progressLog = document.getElementById('model-loading-progress-log');
+            if (progressFill) progressFill.style.width = '0%';
+            if (progressText) progressText.textContent = 'Starting model loading...';
+            if (progressLog) progressLog.innerHTML = '';
+        }
+    }
+
+    updateModelLoadingProgress(data) {
+        const progressFill = document.getElementById('model-loading-progress-fill');
+        const progressText = document.getElementById('model-loading-progress-text');
+        const progressLog = document.getElementById('model-loading-progress-log');
+        
+        if (progressFill && data.progress !== undefined) {
+            progressFill.style.width = `${data.progress}%`;
+        }
+        
+        if (progressText && data.message) {
+            progressText.textContent = data.message;
+        }
+        
+        if (progressLog && data.message) {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${data.message}`;
+            if (data.status === 'error') {
+                logEntry.style.color = '#ff6b6b';
+            }
+            progressLog.appendChild(logEntry);
+            // Auto-scroll to bottom
+            progressLog.scrollTop = progressLog.scrollHeight;
+        }
+    }
+
+    finalizeModelLoadingProgress(success, message) {
+        const progressModal = document.getElementById('model-loading-progress-modal');
+        
+        if (success) {
             // Update model status
             if (this.modelStatusIcon) {
                 this.modelStatusIcon.textContent = '✅';
@@ -547,22 +845,37 @@ class IkLlamaDashboard {
             // Navigate to chat section
             this.navigateTo('chat');
             
-            // Re-enable load button
-            if (this.loadModelBtn) {
-                this.loadModelBtn.disabled = false;
-                this.loadModelBtn.textContent = 'Load Model';
+            // Hide progress modal after a short delay
+            setTimeout(() => {
+                if (progressModal) {
+                    progressModal.classList.remove('active');
+                }
+            }, 2000);
+        } else {
+            // Update model status to error
+            if (this.modelStatusIcon) {
+                this.modelStatusIcon.textContent = '❌';
             }
-        })
-        .catch(error => {
-            console.error('Error loading model:', error);
-            alert('Failed to load model. Please check the logs for details.');
             
-            // Re-enable load button
-            if (this.loadModelBtn) {
-                this.loadModelBtn.disabled = false;
-                this.loadModelBtn.textContent = 'Load Model';
+            if (this.modelStatusText) {
+                this.modelStatusText.textContent = 'Model loading failed';
             }
-        });
+            
+            console.error('Model loading failed:', message);
+            
+            // Keep progress modal open to show error
+            const progressText = document.getElementById('model-loading-progress-text');
+            if (progressText) {
+                progressText.textContent = `Error: ${message}`;
+                progressText.style.color = '#ff6b6b';
+            }
+        }
+        
+        // Re-enable load button
+        if (this.loadModelBtn) {
+            this.loadModelBtn.disabled = false;
+            this.loadModelBtn.textContent = 'Load Model';
+        }
     }
 
     switchSettingsTab(tabName) {
@@ -597,8 +910,11 @@ class IkLlamaDashboard {
             // Advanced settings
             ctk: this.ctk?.value || 'f16',
             top_k: parseInt(this.topK?.value || 40),
+            mla: parseInt(this.mlaAttn?.value || 0),
+            amb: parseInt(this.amb?.value || 0),
             flash_attn: this.flashAttn?.checked || false,
             fmoe: this.fmoe?.checked || false,
+            mmap: this.mmap?.checked !== false, // Default to true (enabled)
             
             // Hardware settings
             threads: parseInt(this.threads?.value || 8),
@@ -632,8 +948,11 @@ class IkLlamaDashboard {
             system_prompt: '',
             ctk: 'f16',
             top_k: 40,
+            mla: 0,
+            amb: 0,
             flash_attn: false,
             fmoe: false,
+            mmap: true,
             threads: 8,
             n_gpu_layers: 0
         };
@@ -648,8 +967,11 @@ class IkLlamaDashboard {
         if (this.systemPrompt) this.systemPrompt.value = defaultConfig.system_prompt;
         if (this.ctk) this.ctk.value = defaultConfig.ctk;
         if (this.topK) this.topK.value = defaultConfig.top_k;
+        if (this.mlaAttn) this.mlaAttn.value = defaultConfig.mla;
+        if (this.amb) this.amb.value = defaultConfig.amb;
         if (this.flashAttn) this.flashAttn.checked = defaultConfig.flash_attn;
         if (this.fmoe) this.fmoe.checked = defaultConfig.fmoe;
+        if (this.mmap) this.mmap.checked = defaultConfig.mmap;
         if (this.threads) this.threads.value = defaultConfig.threads;
         if (this.nGpuLayers) this.nGpuLayers.value = defaultConfig.n_gpu_layers;
         if (this.nGpuLayersValue) this.nGpuLayersValue.textContent = defaultConfig.n_gpu_layers;
@@ -679,8 +1001,11 @@ class IkLlamaDashboard {
                 if (this.systemPrompt) this.systemPrompt.value = config.system_prompt || '';
                 if (this.ctk) this.ctk.value = config.ctk || 'f16';
                 if (this.topK) this.topK.value = config.top_k || 40;
+                if (this.mlaAttn) this.mlaAttn.value = config.mla || 0;
+                if (this.amb) this.amb.value = config.amb || 0;
                 if (this.flashAttn) this.flashAttn.checked = config.flash_attn || false;
                 if (this.fmoe) this.fmoe.checked = config.fmoe || false;
+                if (this.mmap) this.mmap.checked = config.mmap !== false; // Default to true
                 if (this.threads) this.threads.value = config.threads || 8;
                 if (this.nGpuLayers) this.nGpuLayers.value = config.n_gpu_layers || 0;
                 if (this.nGpuLayersValue) this.nGpuLayersValue.textContent = config.n_gpu_layers || 0;
@@ -818,13 +1143,26 @@ class IkLlamaDashboard {
                 
                 // Update model status
                 if (this.modelStatusIcon && this.modelStatusText) {
+                    // Don't overwrite "Model loaded" status unless the API explicitly says the model is loaded
+                    // This prevents the status from being reset after a successful model load
+                    const currentStatus = this.modelStatusText.textContent;
+                    console.log('checkRepoStatus - Current status:', currentStatus, 'API model_loaded:', data.model_loaded); // Debug log
+                    
                     if (data.model_loaded) {
                         this.modelStatusIcon.textContent = '✅';
                         this.modelStatusText.textContent = data.model_name || 'Model loaded';
-                    } else {
+                        console.log('Updated status to:', this.modelStatusText.textContent); // Debug log
+                    } else if (currentStatus !== 'Model loaded') {
+                        // Only update to "No model loaded" if we're not currently showing "Model loaded"
+                        // This preserves the status set by the model loading process
                         this.modelStatusIcon.textContent = '❓';
                         this.modelStatusText.textContent = 'No model loaded';
+                        console.log('Updated status to: No model loaded'); // Debug log
+                    } else {
+                        console.log('Preserving "Model loaded" status despite API saying model_loaded=false'); // Debug log
                     }
+                    // If currentStatus is "Model loaded" and data.model_loaded is false,
+                    // we keep the current status to avoid overwriting a successful load
                 }
                 
                 // Update server status
@@ -851,9 +1189,24 @@ class IkLlamaDashboard {
 
     startStatusUpdates() {
         // Check status every 5 seconds
-        setInterval(() => {
-            this.checkRepoStatus();
+        this.statusInterval = setInterval(() => {
+            // Only check status if not currently streaming
+            if (!this.isStreaming) {
+                this.checkRepoStatus();
+            }
         }, 5000);
+    }
+    
+    // Pause status updates during streaming
+    pauseStatusUpdates() {
+        this.isStreaming = true;
+        console.log('Status updates paused during streaming');
+    }
+    
+    // Resume status updates after streaming
+    resumeStatusUpdates() {
+        this.isStreaming = false;
+        console.log('Status updates resumed');
     }
 
     setupTheme() {
@@ -950,6 +1303,459 @@ class IkLlamaDashboard {
         }
         
         this.toggleCustomTensorInput();
+    }
+    
+    async checkVersion() {
+        if (!this.versionIndicator || !this.versionStatus) return;
+        
+        try {
+            // Set checking state
+            this.versionIndicator.className = 'version-indicator checking';
+            this.versionStatus.textContent = '⏳';
+            this.versionIndicator.title = 'Checking for updates...';
+            
+            // Get current version from our API
+            const packageResponse = await fetch('/api/package-info');
+            const packageData = await packageResponse.json();
+            
+            if (!packageData.success) {
+                throw new Error('Failed to get package info');
+            }
+            
+            const currentVersion = packageData.version;
+            
+            // Check GitHub for latest release
+            const githubResponse = await fetch('https://api.github.com/repos/ggerganov/llama.cpp/releases/latest');
+            const releaseData = await githubResponse.json();
+            
+            if (!releaseData.tag_name) {
+                throw new Error('Failed to get latest release info');
+            }
+            
+            const latestVersion = releaseData.tag_name.replace(/^v/, ''); // Remove 'v' prefix if present
+            
+            // Compare versions
+            const comparison = this.compareVersions(currentVersion, latestVersion);
+            
+            if (comparison === 0) {
+                // Up to date
+                this.versionIndicator.className = 'version-indicator up-to-date';
+                this.versionStatus.textContent = '✅';
+                this.versionIndicator.title = `Up to date (v${currentVersion})`;
+            } else if (comparison < 0) {
+                // Update available
+                this.versionIndicator.className = 'version-indicator update-available';
+                this.versionStatus.textContent = '🔄';
+                this.versionIndicator.title = `Update available: v${latestVersion} (current: v${currentVersion})`;
+            } else {
+                // Ahead of latest (development version)
+                this.versionIndicator.className = 'version-indicator development';
+                this.versionStatus.textContent = '🚀';
+                this.versionIndicator.title = `Development version (v${currentVersion}, latest stable: v${latestVersion})`;
+            }
+            
+        } catch (error) {
+            console.error('Error checking version:', error);
+            // Error state
+            this.versionIndicator.className = 'version-indicator error';
+            this.versionStatus.textContent = '❌';
+            this.versionIndicator.title = 'Error checking for updates';
+        }
+    }
+    
+    compareVersions(version1, version2) {
+        // Simple version comparison (assumes semantic versioning)
+        const v1parts = version1.split('.').map(Number);
+        const v2parts = version2.split('.').map(Number);
+        
+        const maxLength = Math.max(v1parts.length, v2parts.length);
+        
+        for (let i = 0; i < maxLength; i++) {
+            const v1part = v1parts[i] || 0;
+            const v2part = v2parts[i] || 0;
+            
+            if (v1part < v2part) return -1;
+            if (v1part > v2part) return 1;
+        }
+        
+        return 0;
+    }
+    
+    async sendMessage() {
+        if (!this.userInput || !this.chatMessages) return;
+        
+        const message = this.userInput.value.trim();
+        if (!message) return;
+        
+        // Check if model is loaded
+        const modelStatus = this.modelStatusText?.textContent;
+        console.log('Current model status:', modelStatus);
+        
+        // Check if model is loaded - accept "Model loaded" or any model name (not error states)
+        const isModelLoaded = modelStatus && 
+            modelStatus !== 'No model loaded' && 
+            modelStatus !== 'Loading model...' && 
+            modelStatus !== 'Model loading failed' &&
+            !modelStatus.includes('failed') &&
+            !modelStatus.includes('error');
+            
+        if (!isModelLoaded) {
+            this.addMessage('system', `Please load a model first. Current status: "${modelStatus}"`);
+            return;
+        }
+        
+        // Clear input and add user message
+        this.userInput.value = '';
+        this.addMessage('user', message);
+        
+        // Disable send button during generation
+        if (this.sendMessageBtn) {
+            this.sendMessageBtn.disabled = true;
+        }
+        
+        console.log('Sending message to /api/chat:', message);
+        
+        // Robust streaming with retry logic
+        await this.streamWithRetry(message, 3); // Max 3 retries
+    }
+    
+    async streamWithRetry(message, maxRetries = 3) {
+        let retryCount = 0;
+        let assistantMessage = null;
+        let fullResponse = '';
+        
+        // Pause status updates before streaming starts
+        this.pauseStatusUpdates();
+        
+        try {
+            while (retryCount <= maxRetries) {
+                try {
+                    const result = await this.performStreamRequest(message, assistantMessage, fullResponse, retryCount);
+                    
+                    if (result.success) {
+                        // Streaming completed successfully
+                        if (result.assistantMessage) {
+                            this.updateStreamingMessage(result.assistantMessage, result.fullResponse, true);
+                        }
+                        return;
+                    } else {
+                        // Partial success - continue from where we left off
+                        assistantMessage = result.assistantMessage;
+                        fullResponse = result.fullResponse;
+                        retryCount++;
+                        
+                        if (retryCount <= maxRetries) {
+                            console.log(`Retrying stream request (attempt ${retryCount + 1}/${maxRetries + 1})...`);
+                            // Exponential backoff: 1s, 2s, 4s
+                            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount - 1) * 1000));
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Stream attempt ${retryCount + 1} failed:`, error);
+                    retryCount++;
+                    
+                    if (retryCount <= maxRetries) {
+                        console.log(`Retrying after error (attempt ${retryCount + 1}/${maxRetries + 1})...`);
+                        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount - 1) * 1000));
+                    } else {
+                        // All retries exhausted
+                        if (assistantMessage && fullResponse) {
+                            // We have partial content, show it
+                            this.updateStreamingMessage(assistantMessage, fullResponse + '\n\n[Connection lost - partial response shown]', true);
+                        } else {
+                            // No content received
+                            this.addMessage('system', `Error: ${error.message}. Please try again.`);
+                        }
+                        break;
+                    }
+                }
+            }
+        } finally {
+            // Resume status updates after streaming ends (success or failure)
+            this.resumeStatusUpdates();
+            
+            // Re-enable send button
+            if (this.sendMessageBtn) {
+                this.sendMessageBtn.disabled = false;
+            }
+        }
+    }
+    
+    async performStreamRequest(message, existingMessage = null, existingResponse = '', retryAttempt = 0) {
+        const config = this.getConfig();
+        console.log(`Stream request attempt ${retryAttempt + 1}, Config:`, config);
+        
+        // Create AbortController for timeout management
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            console.log('Request timeout, aborting...');
+            controller.abort();
+        }, 60000); // 60 second timeout
+        
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    config: config
+                }),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            console.log('Response status:', response.status, response.statusText);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            // Ensure we have a message element
+            let assistantMessage = existingMessage;
+            if (!assistantMessage) {
+                assistantMessage = this.addMessage('assistant', '');
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            let fullResponse = existingResponse;
+            let buffer = '';
+            let lastActivityTime = Date.now();
+            const ACTIVITY_TIMEOUT = 30000; // 30 seconds without data
+            
+            console.log('Starting to read response stream...');
+            
+            while (true) {
+                // Check for activity timeout
+                if (Date.now() - lastActivityTime > ACTIVITY_TIMEOUT) {
+                    console.log('Activity timeout - no data received for 30 seconds');
+                    throw new Error('Stream timeout - no data received');
+                }
+                
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    console.log('Stream finished successfully');
+                    return {
+                        success: true,
+                        assistantMessage,
+                        fullResponse
+                    };
+                }
+                
+                lastActivityTime = Date.now();
+                
+                // Decode chunk and add to buffer
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
+                console.log('Received chunk:', chunk);
+                
+                // Process complete lines from buffer
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) continue;
+                    
+                    try {
+                        const data = JSON.parse(trimmedLine);
+                        console.log('Parsed data:', data);
+                        
+                        if (data.error) {
+                            console.error('Server error:', data.error);
+                            
+                            // Check if it's a connection error that we can retry
+                            if (data.error.includes('Connection interrupted') || 
+                                data.error.includes('timeout') ||
+                                data.error.includes('connection reset')) {
+                                return {
+                                    success: false,
+                                    assistantMessage,
+                                    fullResponse
+                                };
+                            }
+                            
+                            throw new Error(`Server error: ${data.error}`);
+                        }
+                        
+                        if (data.token) {
+                            fullResponse += data.token;
+                            this.updateStreamingMessage(assistantMessage, fullResponse);
+                            this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+                        }
+                        
+                        if (data.done) {
+                            console.log('Received done signal');
+                            return {
+                                success: true,
+                                assistantMessage,
+                                fullResponse
+                            };
+                        }
+                    } catch (parseError) {
+                        console.log('JSON parse error:', parseError, 'for line:', line);
+                        
+                        // Check if the line contains connection error indicators
+                        if (line.includes('Connection interrupted') || 
+                            line.includes('connection reset') ||
+                            line.includes('timeout')) {
+                            console.log('Connection error detected in response');
+                            return {
+                                success: false,
+                                assistantMessage,
+                                fullResponse
+                            };
+                        }
+                        
+                        // For other parse errors, continue processing
+                        continue;
+                    }
+                }
+            }
+        } catch (error) {
+            clearTimeout(timeoutId);
+            
+            // Check if it's an abort error (timeout)
+            if (error.name === 'AbortError') {
+                console.log('Request was aborted due to timeout');
+                return {
+                    success: false,
+                    assistantMessage: existingMessage,
+                    fullResponse: existingResponse
+                };
+            }
+            
+            // Check if it's a network error that might be recoverable
+            if (error.name === 'NetworkError' || 
+                error.message.includes('network') ||
+                error.message.includes('fetch')) {
+                console.log('Network error detected, marking for retry');
+                return {
+                    success: false,
+                    assistantMessage: existingMessage,
+                    fullResponse: existingResponse
+                };
+            }
+            
+            throw error;
+        }
+    }
+    
+    updateStreamingMessage(messageElement, content, isComplete = false) {
+        if (!messageElement) return;
+        
+        const parsed = this.parseStreamingThinking(content);
+        messageElement.innerHTML = parsed.html;
+        
+        // Auto-collapse thinking sections when message is complete
+        if (isComplete) {
+            this.collapseThinkingSections(messageElement);
+        }
+    }
+    
+    parseStreamingThinking(content) {
+        let html = '';
+        let position = 0;
+        let inThinking = false;
+        let cleanContent = '';
+
+        while (position < content.length) {
+            if (!inThinking) {
+                // Look for opening <think> tag
+                const thinkStart = content.indexOf('<think>', position);
+                if (thinkStart !== -1) {
+                    // Add content before thinking
+                    const beforeThinking = content.substring(position, thinkStart);
+                    html += this.escapeHtml(beforeThinking);
+                    cleanContent += beforeThinking;
+                    
+                    // Start thinking section (expanded by default)
+                    html += `
+                        <div class="thinking-section expanded">
+                            <div class="thinking-toggle" onclick="this.parentElement.classList.toggle('expanded')">
+                                <span class="thinking-label">💭 Thinking</span>
+                                <span class="thinking-arrow">▼</span>
+                            </div>
+                            <div class="thinking-content">`;
+                    
+                    inThinking = true;
+                    position = thinkStart + 7; // Skip <think>
+                } else {
+                    // No more thinking tags, add remaining content
+                    const remaining = content.substring(position);
+                    html += this.escapeHtml(remaining);
+                    cleanContent += remaining;
+                    break;
+                }
+            } else {
+                // Look for closing </think> tag
+                const thinkEnd = content.indexOf('</think>', position);
+                if (thinkEnd !== -1) {
+                    // Add thinking content and close section
+                    const thinkingContent = content.substring(position, thinkEnd);
+                    html += this.escapeHtml(thinkingContent);
+                    html += `</div></div>`;
+                    
+                    inThinking = false;
+                    position = thinkEnd + 8; // Skip </think>
+                } else {
+                    // Thinking tag not closed yet, add current thinking content
+                    const thinkingContent = content.substring(position);
+                    html += this.escapeHtml(thinkingContent);
+                    break;
+                }
+            }
+        }
+
+        // If we're still in thinking mode, close the section
+        if (inThinking) {
+            html += `</div></div>`;
+        }
+
+        return { html, cleanContent };
+    }
+    
+    collapseThinkingSections(messageElement) {
+        // Find all thinking sections in the message and collapse them
+        const thinkingSections = messageElement.querySelectorAll('.thinking-section.expanded');
+        thinkingSections.forEach(section => {
+            section.classList.remove('expanded');
+            const arrow = section.querySelector('.thinking-arrow');
+            if (arrow) arrow.textContent = '▶';
+        });
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    addMessage(type, content) {
+        if (!this.chatMessages) return null;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+        
+        if (type === 'assistant' && content.includes('<think>')) {
+            // Parse thinking tags for assistant messages
+            const parsed = this.parseStreamingThinking(content);
+            messageDiv.innerHTML = parsed.html;
+        } else {
+            messageDiv.textContent = content;
+        }
+        
+        this.chatMessages.appendChild(messageDiv);
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        
+        return messageDiv;
     }
 }
 
