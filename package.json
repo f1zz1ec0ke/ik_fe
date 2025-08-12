@@ -2,7 +2,7 @@
   "name": "ik_fe",
   "version": "1.0.0",
   "description": "A clean, minimal web interface for ik_llama.cpp that makes it easy to interact with local LLM models.",
-  "main": "chat.js",
+  "main": "script.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

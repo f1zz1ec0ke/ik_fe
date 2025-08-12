@@ -18,16 +18,10 @@ app = Flask(__name__, static_folder='.')
 CORS(app)
 
 @app.route('/')
-def serve_new_index():
-    return send_from_directory('.', 'new-index.html')
+def serve_index():
+    return send_from_directory('.', 'index.html')
 
-@app.route('/script.js')
-def serve_new_script():
-    return send_from_directory('.', 'new-script.js')
 
-@app.route('/styles.css')
-def serve_new_styles():
-    return send_from_directory('.', 'new-styles.css')
 
 class LlamaServerManager:
     def __init__(self):

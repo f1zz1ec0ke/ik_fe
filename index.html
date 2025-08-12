@@ -9,161 +9,273 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body class="dashboard-body">
+<body>
     <!-- Background layer -->
     <div class="background-layer">
         <div class="background-gradient"></div>
-        <div class="background-pattern"></div>
     </div>
 
-    <!-- Main dashboard container -->
-    <div class="dashboard-container">
-        <!-- Header -->
-        <header class="dashboard-header glass-panel">
-            <div class="header-content">
-                <div class="header-left">
-                    <div class="logo-section">
-                        <div class="logo-icon">🚀</div>
-                        <div class="logo-text">
-                            <h1>ik_llama.cpp</h1>
-                            <p>The Ultimate LLM Toolkit</p>
-                        </div>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">🚀</div>
+                    <div class="logo-text">
+                        <h1>ik_llama.cpp</h1>
+                        <p>LLM Toolkit</p>
                     </div>
-                </div>
-                <div class="header-right">
-                    <div class="header-metrics">
-                        <div class="metric-item">
-                            <span class="metric-label">System</span>
-                            <span class="metric-value" id="system-status">Ready</span>
-                        </div>
-                        <div class="metric-item">
-                            <span class="metric-label">Build</span>
-                            <span class="metric-value" id="build-status">Not Built</span>
-                        </div>
-                    </div>
-                    <button class="theme-toggle" id="theme-toggle">🌙</button>
-                    <button class="settings-btn" id="settings-btn">⚙️</button>
                 </div>
             </div>
-        </header>
+            
+            <nav class="sidebar-nav">
+                <ul>
+                    <li class="nav-item active" data-section="welcome">
+                        <span class="nav-icon">🏠</span>
+                        <span class="nav-text">Welcome</span>
+                    </li>
+                    <li class="nav-item" data-section="setup">
+                        <span class="nav-icon">🧙‍♂️</span>
+                        <span class="nav-text">Setup</span>
+                    </li>
+                    <li class="nav-item" data-section="models">
+                        <span class="nav-icon">🤖</span>
+                        <span class="nav-text">Models</span>
+                    </li>
+                    <li class="nav-item" data-section="chat">
+                        <span class="nav-icon">💬</span>
+                        <span class="nav-text">Chat</span>
+                    </li>
+                    <li class="nav-item" data-section="benchmark">
+                        <span class="nav-icon">📊</span>
+                        <span class="nav-text">Benchmark</span>
+                    </li>
+                    <li class="nav-item" data-section="settings">
+                        <span class="nav-icon">⚙️</span>
+                        <span class="nav-text">Settings</span>
+                    </li>
+                </ul>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="indicator-dot" id="status-dot"></span>
+                    <span id="status-text">Offline</span>
+                </div>
+                <button class="theme-toggle" id="theme-toggle">🌙</button>
+            </div>
+        </aside>
 
-        <!-- Main dashboard grid -->
-        <main class="dashboard-main">
-            <!-- Project Management Section -->
-            <section class="dashboard-section glass-panel" id="project-section">
-                <div class="section-header">
-                    <div class="section-title">
-                        <div class="section-icon">📦</div>
-                        <h2>Project Management</h2>
-                    </div>
-                    <div class="section-actions">
-                        <button class="action-btn secondary" id="refresh-project">🔄</button>
-                    </div>
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="content-header">
+                <h2 id="page-title">Welcome</h2>
+                <div class="header-actions">
+                    <button class="action-button" id="view-logs">📋 Logs</button>
                 </div>
-                <div class="section-content">
-                    <div class="project-status">
-                        <div class="status-item">
-                            <div class="status-icon" id="repo-status-icon">❓</div>
-                            <div class="status-info">
-                                <h4>Repository Status</h4>
-                                <p id="repo-status-text">Checking...</p>
-                            </div>
-                            <button class="status-action" id="clone-repo" style="display: none;">Clone</button>
-                        </div>
-                        <div class="status-item">
-                            <div class="status-icon" id="build-status-icon">❓</div>
-                            <div class="status-info">
-                                <h4>Build Status</h4>
-                                <p id="build-status-text">Not Built</p>
-                            </div>
-                            <button class="status-action" id="build-project" disabled>Build</button>
-                        </div>
-                    </div>
-                    <div class="project-actions">
-                        <button class="action-btn primary" id="setup-wizard">🧙‍♂️ Setup Wizard</button>
-                        <button class="action-btn secondary" id="view-logs">📋 View Logs</button>
-                        <button class="action-btn secondary" id="clean-build">🧹 Clean Build</button>
-                    </div>
-                </div>
-            </section>
+            </header>
 
-            <!-- Model Management Section -->
-            <section class="dashboard-section glass-panel" id="model-section">
-                <div class="section-header">
-                    <div class="section-title">
-                        <div class="section-icon">🤖</div>
-                        <h2>Model Management</h2>
-                    </div>
-                    <div class="section-actions">
-                        <button class="action-btn secondary" id="scan-models">🔍</button>
-                        <button class="action-btn secondary" id="download-model">⬇️</button>
-                    </div>
-                </div>
-                <div class="section-content">
-                    <div class="model-selector">
-                        <div class="form-group">
-                            <label for="model-dropdown">Select Model:</label>
-                            <div class="select-wrapper">
-                                <select id="model-dropdown">
-                                    <option value="">Scanning for models...</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="model-path-group">
-                            <input type="text" id="model-path" placeholder="Or enter custom path..." class="glass-input">
-                            <button type="button" id="browse-model" class="action-btn secondary">📁</button>
-                            <button type="button" id="toggle-custom-path" class="action-btn secondary">Custom Path</button>
-                        </div>
-                    </div>
-                    <div class="model-info" id="model-info" style="display: none;">
-                        <div class="info-grid">
-                            <div class="info-item">
-                                <span class="info-label">Size:</span>
-                                <span class="info-value" id="model-size">-</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Type:</span>
-                                <span class="info-value" id="model-type">-</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Quantization:</span>
-                                <span class="info-value" id="model-quant">-</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Configuration Section -->
-            <section class="dashboard-section glass-panel" id="config-section">
-                <div class="section-header">
-                    <div class="section-title">
-                        <div class="section-icon">⚙️</div>
-                        <h2>Configuration</h2>
-                    </div>
-                    <div class="section-actions">
-                        <button class="action-btn secondary" id="save-config">💾</button>
-                        <button class="action-btn secondary" id="load-config">📂</button>
-                    </div>
-                </div>
-                <div class="section-content">
-                    <div class="config-tabs">
-                        <button class="tab-btn active" data-tab="basic">Basic</button>
-                        <button class="tab-btn" data-tab="advanced">Advanced</button>
-                        <button class="tab-btn" data-tab="hardware">Hardware</button>
+            <!-- Welcome Section -->
+            <section class="content-section active" id="welcome-section">
+                <div class="welcome-container">
+                    <div class="welcome-header">
+                        <h2>Welcome to ik_llama.cpp</h2>
+                        <p>The optimized LLM inference toolkit for CPU and hybrid GPU/CPU performance</p>
                     </div>
                     
-                    <!-- Basic Configuration -->
-                    <div class="tab-content active" id="basic-tab">
-                        <div class="config-grid">
+                    <div class="status-cards">
+                        <div class="status-card">
+                            <div class="status-icon" id="repo-status-icon">❓</div>
+                            <div class="status-info">
+                                <h4>Repository</h4>
+                                <p id="repo-status-text">Not initialized</p>
+                            </div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon" id="build-status-icon">❓</div>
+                            <div class="status-info">
+                                <h4>Build</h4>
+                                <p id="build-status-text">Not built</p>
+                            </div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon" id="model-status-icon">❓</div>
+                            <div class="status-info">
+                                <h4>Model</h4>
+                                <p id="model-status-text">Not loaded</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="welcome-actions">
+                        <button class="primary-button" id="start-setup">🧙‍♂️ Start Setup</button>
+                        <button class="secondary-button" id="quick-start">📖 Quick Start Guide</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Setup Section -->
+            <section class="content-section" id="setup-section">
+                <div class="setup-container">
+                    <div class="setup-steps">
+                        <div class="step active" id="step-1">
+                            <div class="step-number">1</div>
+                            <div class="step-content">
+                                <h3>Repository Setup</h3>
+                                <p>First, we need to clone the ik_llama.cpp repository.</p>
+                                
+                                <div class="setup-options">
+                                    <label class="radio-item">
+                                        <input type="radio" name="repo-option" value="clone" checked>
+                                        <span class="radio-mark"></span>
+                                        Clone fresh repository
+                                    </label>
+                                    <label class="radio-item">
+                                        <input type="radio" name="repo-option" value="existing">
+                                        <span class="radio-mark"></span>
+                                        Use existing repository
+                                    </label>
+                                </div>
+                                
+                                <div class="step-actions">
+                                    <button class="primary-button" id="next-step-1">Continue</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="step" id="step-2">
+                            <div class="step-number">2</div>
+                            <div class="step-content">
+                                <h3>Build Configuration</h3>
+                                <p>Configure build options for optimal performance.</p>
+                                
+                                <div class="build-options">
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" id="cuda-support" checked>
+                                        <span class="checkmark"></span>
+                                        CUDA Support (if available)
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" id="opencl-support">
+                                        <span class="checkmark"></span>
+                                        OpenCL Support
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" id="metal-support">
+                                        <span class="checkmark"></span>
+                                        Metal Support (macOS)
+                                    </label>
+                                </div>
+                                
+                                <div class="step-actions">
+                                    <button class="secondary-button" id="prev-step-2">Back</button>
+                                    <button class="primary-button" id="next-step-2">Continue</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="step" id="step-3">
+                            <div class="step-number">3</div>
+                            <div class="step-content">
+                                <h3>Start Build</h3>
+                                <p>Ready to build ik_llama.cpp with the selected options.</p>
+                                
+                                <div class="build-summary">
+                                    <div class="summary-item">
+                                        <span class="summary-label">Repository:</span>
+                                        <span class="summary-value" id="summary-repo">Clone fresh repository</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">CUDA Support:</span>
+                                        <span class="summary-value" id="summary-cuda">Enabled</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">OpenCL Support:</span>
+                                        <span class="summary-value" id="summary-opencl">Disabled</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">Metal Support:</span>
+                                        <span class="summary-value" id="summary-metal">Disabled</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="step-actions">
+                                    <button class="secondary-button" id="prev-step-3">Back</button>
+                                    <button class="primary-button" id="start-build">Start Build</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Models Section -->
+            <section class="content-section" id="models-section">
+                <div class="models-container">
+                    <div class="section-card">
+                        <div class="card-header">
+                            <h3>Model Selection</h3>
+                            <div class="card-actions">
+                                <button class="icon-button" id="scan-models" title="Scan for models">🔍</button>
+                                <button class="icon-button" id="download-model" title="Download model">⬇️</button>
+                            </div>
+                        </div>
+                        <div class="card-content">
                             <div class="form-group">
-                                <label for="ctx-size">Context Size:</label>
-                                <input type="number" id="ctx-size" value="4096" min="512" max="32768" class="glass-input">
+                                <label for="model-dropdown">Select Model:</label>
+                                <div class="select-wrapper">
+                                    <select id="model-dropdown">
+                                        <option value="">Scanning for models...</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="form-group">
-                                <label for="n-predict">Max Tokens:</label>
-                                <input type="number" id="n-predict" value="512" min="1" max="4096" class="glass-input">
+                                <label for="model-path">Custom Model Path:</label>
+                                <div class="input-with-button">
+                                    <input type="text" id="model-path" placeholder="Enter path to model file...">
+                                    <button class="icon-button" id="browse-model">📁</button>
+                                </div>
                             </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section-card" id="model-info-card" style="display: none;">
+                        <div class="card-header">
+                            <h3>Model Information</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <span class="info-label">Name:</span>
+                                    <span class="info-value" id="model-name">-</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Size:</span>
+                                    <span class="info-value" id="model-size">-</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Type:</span>
+                                    <span class="info-value" id="model-type">-</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Quantization:</span>
+                                    <span class="info-value" id="model-quant">-</span>
+                                </div>
+                            </div>
+                            <div class="model-actions">
+                                <button class="primary-button" id="load-model">Load Model</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Chat Section -->
+            <section class="content-section" id="chat-section">
+                <div class="chat-container">
+                    <div class="chat-sidebar">
+                        <div class="chat-config">
+                            <h3>Chat Settings</h3>
                             <div class="form-group">
                                 <label for="temperature">Temperature:</label>
                                 <div class="range-input">
@@ -178,264 +290,217 @@
                                     <span class="range-value" id="top-p-value">0.95</span>
                                 </div>
                             </div>
-                        </div>
-                        <div class="form-group full-width">
-                            <label for="system-prompt">System Prompt:</label>
-                            <textarea id="system-prompt" rows="3" placeholder="Enter system prompt..." class="glass-input"></textarea>
+                            <div class="form-group">
+                                <label for="system-prompt">System Prompt:</label>
+                                <textarea id="system-prompt" rows="3" placeholder="Enter system prompt..."></textarea>
+                            </div>
                         </div>
                     </div>
+                    
+                    <div class="chat-main">
+                        <div class="chat-messages" id="chat-messages">
+                            <div class="message system">
+                                <div class="message-content">
+                                    <p>Welcome to ik_llama.cpp chat! Select a model to begin.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="chat-input">
+                            <textarea id="user-input" placeholder="Type your message..." disabled></textarea>
+                            <button class="send-button" id="send-message" disabled>Send</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-                    <!-- Advanced Configuration -->
+            <!-- Benchmark Section -->
+            <section class="content-section" id="benchmark-section">
+                <div class="benchmark-container">
+                    <div class="section-card">
+                        <div class="card-header">
+                            <h3>Benchmark Configuration</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="form-group">
+                                <label for="benchmark-type">Benchmark Type:</label>
+                                <div class="select-wrapper">
+                                    <select id="benchmark-type">
+                                        <option value="generation">Text Generation</option>
+                                        <option value="throughput">Throughput</option>
+                                        <option value="memory">Memory Usage</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="benchmark-iterations">Iterations:</label>
+                                <input type="number" id="benchmark-iterations" value="5" min="1" max="20">
+                            </div>
+                            <div class="benchmark-actions">
+                                <button class="primary-button" id="run-benchmark">Run Benchmark</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section-card" id="benchmark-results" style="display: none;">
+                        <div class="card-header">
+                            <h3>Benchmark Results</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="results-container" id="results-container">
+                                <p>Run a benchmark to see results.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section class="content-section" id="settings-section">
+                <div class="settings-container">
+                    <div class="settings-tabs">
+                        <button class="tab-btn active" data-tab="basic">Basic</button>
+                        <button class="tab-btn" data-tab="advanced">Advanced</button>
+                        <button class="tab-btn" data-tab="hardware">Hardware</button>
+                    </div>
+                    
+                    <div class="tab-content active" id="basic-tab">
+                        <div class="section-card">
+                            <div class="card-header">
+                                <h3>Basic Configuration</h3>
+                            </div>
+                            <div class="card-content">
+                                <div class="settings-grid">
+                                    <div class="form-group">
+                                        <label for="ctx-size">Context Size:</label>
+                                        <input type="number" id="ctx-size" value="4096" min="512" max="32768">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="n-predict">Max Tokens:</label>
+                                        <input type="number" id="n-predict" value="512" min="1" max="4096">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="tab-content" id="advanced-tab">
-                        <div class="config-grid">
-                            <div class="form-group">
-                                <label for="ctk">KV Cache Type:</label>
-                                <select id="ctk" class="glass-input">
-                                    <option value="f16">f16 (default)</option>
-                                    <option value="q8_0">q8_0 (recommended)</option>
-                                    <option value="q4_0">q4_0</option>
-                                    <option value="q4_1">q4_1</option>
-                                </select>
+                        <div class="section-card">
+                            <div class="card-header">
+                                <h3>Advanced Configuration</h3>
                             </div>
-                            <div class="form-group">
-                                <label for="mla">Multi-Layer Attention:</label>
-                                <div class="range-input">
-                                    <input type="range" id="mla" min="0" max="3" value="0">
-                                    <span class="range-value" id="mla-value">0</span>
+                            <div class="card-content">
+                                <div class="settings-grid">
+                                    <div class="form-group">
+                                        <label for="ctk">KV Cache Type:</label>
+                                        <select id="ctk">
+                                            <option value="f16">f16 (default)</option>
+                                            <option value="q8_0">q8_0 (recommended)</option>
+                                            <option value="q4_0">q4_0</option>
+                                            <option value="q4_1">q4_1</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="top-k">Top K:</label>
+                                        <input type="number" id="top-k" value="40" min="1" max="100">
+                                    </div>
+                                </div>
+                                <div class="checkbox-grid">
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" id="flash-attn">
+                                        <span class="checkmark"></span>
+                                        Flash Attention
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" id="fmoe">
+                                        <span class="checkmark"></span>
+                                        Fused MoE
+                                    </label>
                                 </div>
                             </div>
-                            <div class="form-group">
-                                <label for="amb">Attention Max Batch:</label>
-                                <input type="number" id="amb" value="512" min="1" max="2048" class="glass-input">
-                            </div>
-                            <div class="form-group">
-                                <label for="top-k">Top K:</label>
-                                <input type="number" id="top-k" value="40" min="1" max="100" class="glass-input">
-                            </div>
-                        </div>
-                        <div class="checkbox-grid">
-                            <label class="checkbox-item">
-                                <input type="checkbox" id="flash-attn">
-                                <span class="checkmark"></span>
-                                Flash Attention
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" id="fmoe">
-                                <span class="checkmark"></span>
-                                Fused MoE
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" id="ser">
-                                <span class="checkmark"></span>
-                                Smart Expert Reduction
-                            </label>
-                            <label class="checkbox-item">
-                                <input type="checkbox" id="rtr">
-                                <span class="checkmark"></span>
-                                Run-time Tensor Repacking
-                            </label>
                         </div>
                     </div>
-
-                    <!-- Hardware Configuration -->
+                    
                     <div class="tab-content" id="hardware-tab">
-                        <div class="config-grid">
-                            <div class="form-group">
-                                <label for="threads">CPU Threads:</label>
-                                <input type="number" id="threads" value="8" min="1" max="32" class="glass-input">
+                        <div class="section-card">
+                            <div class="card-header">
+                                <h3>Hardware Configuration</h3>
                             </div>
-                            <div class="form-group">
-                                <label for="n-gpu-layers">GPU Layers:</label>
-                                <div class="range-input">
-                                    <input type="range" id="n-gpu-layers" min="0" max="50" value="0">
-                                    <span class="range-value" id="n-gpu-layers-value">0</span>
+                            <div class="card-content">
+                                <div class="settings-grid">
+                                    <div class="form-group">
+                                        <label for="threads">CPU Threads:</label>
+                                        <input type="number" id="threads" value="8" min="1" max="32">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="n-gpu-layers">GPU Layers:</label>
+                                        <div class="range-input">
+                                            <input type="range" id="n-gpu-layers" min="0" max="50" value="0">
+                                            <span class="range-value" id="n-gpu-layers-value">0</span>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="checkbox-item">
+                                            <input type="checkbox" id="override-tensor-enabled">
+                                            <span class="checkmark"></span>
+                                            Override Tensor Pattern
+                                        </label>
+                                        <small>Override tensor buffers (-ot flag) for hybrid CPU/GPU configurations</small>
+                                        
+                                        <div class="override-tensor-options" id="override-tensor-options" style="display: none; margin-top: 10px;">
+                                            <div class="radio-group">
+                                                <label class="radio-item">
+                                                    <input type="radio" name="tensor-pattern" value="exps=CPU" id="tensor-pattern-experts" checked>
+                                                    <span class="radio-mark"></span>
+                                                    <div class="radio-content">
+                                                        <strong>MoE Experts on CPU</strong>
+                                                        <small>exps=CPU (recommended with -ngl 99 for low VRAM)</small>
+                                                    </div>
+                                                </label>
+                                                <label class="radio-item">
+                                                    <input type="radio" name="tensor-pattern" value="custom" id="tensor-pattern-custom">
+                                                    <span class="radio-mark"></span>
+                                                    <div class="radio-content">
+                                                        <strong>Custom Pattern</strong>
+                                                        <input type="text" id="custom-tensor-pattern" placeholder="pattern=backend" style="margin-top: 5px; width: 100%;" disabled>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-group">
-                                <label for="repeat-penalty">Repeat Penalty:</label>
-                                <div class="range-input">
-                                    <input type="range" id="repeat-penalty" min="1.0" max="1.5" step="0.05" value="1.1">
-                                    <span class="range-value" id="repeat-penalty-value">1.1</span>
-                                </div>
-                            </div>
                         </div>
                     </div>
-                </div>
-            </section>
-
-            <!-- Actions Section -->
-            <section class="dashboard-section glass-panel" id="actions-section">
-                <div class="section-header">
-                    <div class="section-title">
-                        <div class="section-icon">🎯</div>
-                        <h2>Actions</h2>
-                    </div>
-                </div>
-                <div class="section-content">
-                    <div class="action-grid">
-                        <div class="action-card" id="load-model-card">
-                            <div class="card-icon">🔄</div>
-                            <h3>Load Model</h3>
-                            <p>Initialize the selected model with current configuration</p>
-                            <button class="card-action" id="load-model">Load Model</button>
-                        </div>
-                        <div class="action-card" id="chat-card">
-                            <div class="card-icon">💬</div>
-                            <h3>Start Chat</h3>
-                            <p>Begin interactive conversation with the AI model</p>
-                            <button class="card-action" id="enter-chat" disabled>Start Chat</button>
-                        </div>
-                        <div class="action-card" id="benchmark-card">
-                            <div class="card-icon">📊</div>
-                            <h3>Benchmark</h3>
-                            <p>Test model performance and speed</p>
-                            <button class="card-action" id="run-benchmark" disabled>Run Benchmark</button>
-                        </div>
-                        <div class="action-card" id="completion-card">
-                            <div class="card-icon">✨</div>
-                            <h3>Text Completion</h3>
-                            <p>Generate text completions</p>
-                            <button class="card-action" id="text-completion" disabled>Complete Text</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Status Section -->
-            <section class="dashboard-section glass-panel" id="status-section">
-                <div class="section-header">
-                    <div class="section-title">
-                        <div class="section-icon">📊</div>
-                        <h2>System Status</h2>
-                    </div>
-                    <div class="section-actions">
-                        <div class="status-indicator">
-                            <span class="indicator-dot" id="indicator-dot"></span>
-                            <span id="status-text">Checking...</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="section-content">
-                    <div class="status-grid">
-                        <div class="status-card">
-                            <div class="status-header">
-                                <span class="status-label">Model</span>
-                                <span class="status-value" id="current-model">None</span>
-                            </div>
-                        </div>
-                        <div class="status-card">
-                            <div class="status-header">
-                                <span class="status-label">Server</span>
-                                <span class="status-value" id="server-url">Not running</span>
-                            </div>
-                        </div>
-                        <div class="status-card">
-                            <div class="status-header">
-                                <span class="status-label">Memory</span>
-                                <span class="status-value" id="memory-usage">-</span>
-                            </div>
-                        </div>
-                        <div class="status-card">
-                            <div class="status-header">
-                                <span class="status-label">GPU</span>
-                                <span class="status-value" id="gpu-usage">-</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="performance-metrics" id="performance-metrics" style="display: none;">
-                        <div class="metric-row">
-                            <span class="metric-label">Tokens/sec:</span>
-                            <span class="metric-value" id="tokens-per-sec">-</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Context Used:</span>
-                            <span class="metric-value" id="context-used">-</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Last Updated:</span>
-                            <span class="metric-value" id="last-updated">Never</span>
-                        </div>
+                    
+                    <div class="settings-actions">
+                        <button class="secondary-button" id="reset-settings">Reset to Default</button>
+                        <button class="primary-button" id="save-settings">Save Settings</button>
                     </div>
                 </div>
             </section>
         </main>
     </div>
 
-    <!-- Modals and Overlays -->
-    <div class="modal-overlay" id="setup-modal">
-        <div class="modal glass-panel">
-            <div class="modal-header">
-                <h3>🧙‍♂️ ik_llama.cpp Setup Wizard</h3>
-                <button class="close-btn" id="close-setup">×</button>
-            </div>
-            <div class="modal-content">
-                <div class="setup-step active" id="step-1">
-                    <h4>Step 1: Repository Setup</h4>
-                    <p>First, we need to clone the ik_llama.cpp repository.</p>
-                    <div class="setup-options">
-                        <label class="radio-item">
-                            <input type="radio" name="repo-option" value="clone" checked>
-                            <span class="radio-mark"></span>
-                            Clone fresh repository
-                        </label>
-                        <label class="radio-item">
-                            <input type="radio" name="repo-option" value="existing">
-                            <span class="radio-mark"></span>
-                            Use existing repository
-                        </label>
-                    </div>
-                    <div class="setup-actions">
-                        <button class="action-btn primary" id="next-step">Next</button>
-                    </div>
-                </div>
-                <div class="setup-step" id="step-2">
-                    <h4>Step 2: Build Configuration</h4>
-                    <p>Configure build options for optimal performance.</p>
-                    <div class="build-options">
-                        <label class="checkbox-item">
-                            <input type="checkbox" id="cuda-support" checked>
-                            <span class="checkmark"></span>
-                            CUDA Support (if available)
-                        </label>
-                        <label class="checkbox-item">
-                            <input type="checkbox" id="opencl-support">
-                            <span class="checkmark"></span>
-                            OpenCL Support
-                        </label>
-                        <label class="checkbox-item">
-                            <input type="checkbox" id="metal-support">
-                            <span class="checkmark"></span>
-                            Metal Support (macOS)
-                        </label>
-                    </div>
-                    <div class="setup-actions">
-                        <button class="action-btn secondary" id="prev-step">Previous</button>
-                        <button class="action-btn primary" id="start-build">Start Build</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="logs-modal">
-        <div class="modal glass-panel large">
+    <!-- Logs Modal -->
+    <div class="modal" id="logs-modal">
+        <div class="modal-content">
             <div class="modal-header">
                 <h3>📋 Build Logs</h3>
-                <button class="close-btn" id="close-logs">×</button>
+                <button class="close-button" id="close-logs">×</button>
             </div>
-            <div class="modal-content">
+            <div class="modal-body">
                 <div class="logs-container">
                     <pre id="logs-content">No logs available</pre>
                 </div>
-                <div class="logs-actions">
-                    <button class="action-btn secondary" id="clear-logs">Clear</button>
-                    <button class="action-btn secondary" id="download-logs">Download</button>
-                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-button" id="clear-logs">Clear</button>
+                <button class="secondary-button" id="download-logs">Download</button>
             </div>
         </div>
     </div>
 
     <script src="script.js"></script>
-    <script src="settings.js"></script>
 </body>
 </html>
