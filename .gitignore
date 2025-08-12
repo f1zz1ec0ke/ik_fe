@@ -19,6 +19,7 @@ debug.log
 llama.cpp/
 ik_llama.cpp/
 .serena/
+runlog.txt
 models/mymodels/
 lib/
 lib64/

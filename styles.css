@@ -788,60 +788,7 @@ input[type="radio"], input[type="checkbox"] {
     background: linear-gradient(90deg, #ec7063, #e74c3c);
 }
 
-/* Version Indicator */
-.version-indicator {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background-color: rgba(0, 0, 0, 0.1);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.version-indicator:hover {
-    background-color: rgba(0, 0, 0, 0.15);
-    transform: scale(1.1);
-}
-
-.version-status {
-    font-size: 12px;
-    line-height: 1;
-}
-
-/* Version Status States */
-.version-indicator.checking .version-status {
-    color: var(--text-secondary);
-}
-
-.version-indicator.up-to-date .version-status {
-    color: var(--status-success);
-}
-
-.version-indicator.update-available .version-status {
-    color: var(--status-warning);
-    animation: pulse 2s infinite;
-}
-
-.version-indicator.error .version-status {
-    color: var(--status-error);
-}
-
-/* Dark mode version indicator */
-[data-theme="dark"] .version-indicator {
-    background-color: rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="dark"] .version-indicator:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
+/* Version Indicator styles removed - version checking functionality was removed */
 
 /* Models Section */
 .models-container {
@@ -1037,6 +984,7 @@ input[type="text"], input[type="number"], textarea {
     display: flex;
     padding: var(--spacing-md);
     border-top: 1px solid rgba(0, 0, 0, 0.1);
+    gap: var(--spacing-sm);
 }
 
 .chat-input textarea {
@@ -1046,15 +994,20 @@ input[type="text"], input[type="number"], textarea {
     padding: var(--spacing-sm) var(--spacing-md);
 }
 
-.send-button {
+.chat-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
     align-self: flex-end;
+}
+
+.send-button {
     padding: var(--spacing-sm) var(--spacing-md);
     background-color: var(--primary);
     color: white;
     border: none;
     border-radius: var(--radius-md);
     cursor: pointer;
-    margin-left: var(--spacing-sm);
 }
 
 .send-button:disabled {

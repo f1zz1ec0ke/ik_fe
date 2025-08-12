@@ -46,10 +46,7 @@
                         <span class="nav-icon">💬</span>
                         <span class="nav-text">Chat</span>
                     </li>
-                    <li class="nav-item" data-section="benchmark">
-                        <span class="nav-icon">📊</span>
-                        <span class="nav-text">Benchmark</span>
-                    </li>
+                    <!-- Benchmark nav item removed - functionality not implemented -->
                     <li class="nav-item" data-section="settings">
                         <span class="nav-icon">⚙️</span>
                         <span class="nav-text">Settings</span>
@@ -221,26 +218,11 @@
                                     <button class="secondary-button" id="prev-step-3">Back</button>
                                     <div class="build-button-container">
                                         <button class="primary-button" id="start-build" onclick="app.startBuild()">Start Build</button>
-                                        <div class="version-indicator" id="version-indicator" title="Checking version...">
-                                            <span class="version-status" id="version-status">⏳</span>
-                                        </div>
+                                        <!-- Version indicator removed - version checking functionality was removed -->
                                     </div>
                                 </div>
                                 
-                                <div class="build-progress-section" id="build-progress-section" style="display: none;">
-                                    <h3>Build Progress</h3>
-                                    <div class="progress-container">
-                                        <div class="progress-bar" id="build-progress-bar"></div>
-                                        <div class="progress-text">
-                                            <span id="build-progress-percent">0%</span>
-                                            <span id="build-progress-status">Ready to build</span>
-                                        </div>
-                                    </div>
-                                    <div class="progress-actions">
-                                        <button id="cancel-build-btn" onclick="app.cancelBuild()" style="display: none;">Cancel</button>
-                                        <button id="view-logs-btn" onclick="app.viewBuildLogs()" style="display: none;">View Logs</button>
-                                    </div>
-                                </div>
+                                <!-- Duplicate build progress section removed - using main build-progress section above -->
                             </div>
                         </div>
                     </div>
@@ -346,52 +328,17 @@
                         
                         <div class="chat-input">
                             <textarea id="user-input" placeholder="Type your message..." disabled></textarea>
-                            <button class="send-button" id="send-message" disabled>Send</button>
+                            <div class="chat-buttons">
+                                <button class="secondary-button" id="clear-chat" title="Clear conversation">🗑️ Clear</button>
+                                <button class="send-button" id="send-message" disabled>Send</button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Benchmark Section -->
-            <section class="content-section" id="benchmark-section">
-                <div class="benchmark-container">
-                    <div class="section-card">
-                        <div class="card-header">
-                            <h3>Benchmark Configuration</h3>
-                        </div>
-                        <div class="card-content">
-                            <div class="form-group">
-                                <label for="benchmark-type">Benchmark Type:</label>
-                                <div class="select-wrapper">
-                                    <select id="benchmark-type">
-                                        <option value="generation">Text Generation</option>
-                                        <option value="throughput">Throughput</option>
-                                        <option value="memory">Memory Usage</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="benchmark-iterations">Iterations:</label>
-                                <input type="number" id="benchmark-iterations" value="5" min="1" max="20">
-                            </div>
-                            <div class="benchmark-actions">
-                                <button class="primary-button" id="run-benchmark">Run Benchmark</button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="section-card" id="benchmark-results" style="display: none;">
-                        <div class="card-header">
-                            <h3>Benchmark Results</h3>
-                        </div>
-                        <div class="card-content">
-                            <div class="results-container" id="results-container">
-                                <p>Run a benchmark to see results.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
+            <!-- Benchmark Section - Removed (functionality not implemented) -->
+            <!-- <section class="content-section" id="benchmark-section"> ... </section> -->
 
             <!-- Settings Section -->
             <section class="content-section" id="settings-section">
