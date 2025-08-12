@@ -1,0 +1,6 @@
+Build started at 2025-08-12 01:29:18
+Build command: cmake -B build -DLLAMA_CUDA=ON
+
+Running CMake configuration...
+
+Build failed with exception: [WinError 2] The system cannot find the file specified

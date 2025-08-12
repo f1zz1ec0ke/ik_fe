@@ -244,40 +244,7 @@ def index():
     """Serve the main HTML page"""
     return send_from_directory('.', 'index.html')
 
-@app.route('/api/build', methods=['POST'])
-def build():
-    """Start the build process with the specified options"""
-    try:
-        data = request.json
-        repo_option = data.get('repo_option', 'clone')
-        cuda_support = data.get('cuda_support', False)
-        opencl_support = data.get('opencl_support', False)
-        metal_support = data.get('metal_support', False)
-        
-        # Clone repository if needed
-        if repo_option == 'clone':
-            repo_url = "https://github.com/ggerganov/llama.cpp.git"
-            target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".." , "ik_llama.cpp")
-            
-            if os.path.exists(target_dir):
-                shutil.rmtree(target_dir)
-            
-            subprocess.run(
-                ["git", "clone", repo_url, target_dir],
-                check=True
-            )
-        
-        # Prepare build options
-        build_options = {
-            "cuda": cuda_support,
-            "opencl": opencl_support,
-            "metal": metal_support
-        }
-        
-        # Start the build process
-        return build_project()
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Error starting build: {str(e)}"}), 500
+
 
 @app.route('/api/clone-repository', methods=['POST'])
 def clone_repository():
@@ -305,7 +272,8 @@ def clone_repository():
         return jsonify({"message": "An error occurred", "error": str(e)}), 500
 
 @app.route('/api/build', methods=['POST'])
-def start_build():
+def build():
+    """Start the build process with the specified options"""
     try:
         # Get build options from request
         options = request.json
