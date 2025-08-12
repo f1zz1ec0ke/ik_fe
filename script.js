@@ -714,11 +714,16 @@ class IkLlamaDashboard {
             .then(response => response.json())
             .then(data => {
                 if (this.logsContent) {
-                    if (data.logs && data.logs.length > 0) {
-                        this.logsContent.textContent = data.logs;
+                    if (data.log && data.log.length > 0) {
+                        this.logsContent.textContent = data.log;
                     } else {
                         this.logsContent.textContent = 'No logs available';
                     }
+                }
+                
+                // Auto-refresh logs if build is in progress
+                if (data.status === 'In Progress') {
+                    setTimeout(() => this.loadLogs(), 2000);
                 }
             })
             .catch(error => {
@@ -786,18 +791,28 @@ class IkLlamaDashboard {
                 
                 // Update build status
                 if (this.buildStatusIcon && this.buildStatusText) {
-                    if (data.build_status === 'success') {
+                    if (data.build_status === 'Success') {
                         this.buildStatusIcon.textContent = '✅';
                         this.buildStatusText.textContent = 'Build successful';
-                    } else if (data.build_status === 'in_progress') {
+                    } else if (data.build_status === 'In Progress') {
                         this.buildStatusIcon.textContent = '🔄';
                         this.buildStatusText.textContent = 'Build in progress';
-                    } else if (data.build_status === 'failed') {
+                    } else if (data.build_status === 'Failed') {
                         this.buildStatusIcon.textContent = '❌';
-                        this.buildStatusText.textContent = 'Build failed';
+                        this.buildStatusText.textContent = 'Build failed - Click to view logs';
+                        // Make the build status clickable to show logs
+                        this.buildStatusIcon.style.cursor = 'pointer';
+                        this.buildStatusText.style.cursor = 'pointer';
+                        this.buildStatusIcon.onclick = () => this.showLogsModal();
+                        this.buildStatusText.onclick = () => this.showLogsModal();
                     } else {
                         this.buildStatusIcon.textContent = '❓';
                         this.buildStatusText.textContent = 'Not built';
+                        // Remove click handlers for non-failed states
+                        this.buildStatusIcon.style.cursor = 'default';
+                        this.buildStatusText.style.cursor = 'default';
+                        this.buildStatusIcon.onclick = null;
+                        this.buildStatusText.onclick = null;
                     }
                 }
                 

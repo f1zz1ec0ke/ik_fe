@@ -611,12 +611,37 @@ def stop_generation():
 def get_status():
     """Get current status"""
     info = llama_server.get_server_info()
+    
+    # Check build status
+    build_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_log.txt")
+    build_status = "Not Started"
+    
+    if os.path.exists(build_log_path):
+        with open(build_log_path, 'r') as f:
+            log_content = f.read()
+        
+        if "Build completed successfully" in log_content:
+            build_status = "Success"
+        elif "Build failed" in log_content:
+            build_status = "Failed"
+        else:
+            build_status = "In Progress"
+    
+    # Check if repository exists
+    repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama.cpp")
+    repo_exists = os.path.exists(repo_dir)
+    
     return jsonify({
         'is_loaded': llama_server.is_server_running,
         'is_generating': False,  # We'll implement this later
         'current_model': info.get('model', ''),
         'server_status': info['status'],
-        'server_url': info['url']
+        'server_url': info['url'],
+        'server_running': llama_server.is_server_running,
+        'model_loaded': llama_server.is_server_running,
+        'model_name': info.get('model', ''),
+        'build_status': build_status,
+        'repo_exists': repo_exists
     })
 
 def signal_handler(sig, frame):
