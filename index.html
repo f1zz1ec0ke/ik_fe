@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <!-- Background layer -->
@@ -349,6 +350,16 @@
             <section class="content-section" id="chat-section">
                 <div class="chat-container">
                     <div class="chat-sidebar">
+                        <div class="conversations-panel">
+                            <div class="conversations-header">
+                                <h3>Conversations</h3>
+                                <button class="new-chat-btn" id="new-chat-btn" title="Start new conversation">+ New Chat</button>
+                            </div>
+                            <div class="conversations-list" id="conversations-list">
+                                <!-- Conversations will be populated here -->
+                            </div>
+                        </div>
+                        
                         <div class="chat-config">
                             <h3>Chat Settings</h3>
                             <div class="form-group">

@@ -1,3 +1,155 @@
+// Conversation Management System
+class ConversationManager {
+    constructor() {
+        this.conversations = new Map();
+        this.currentConversationId = null;
+        this.conversationCounter = 1;
+        this.loadConversations();
+    }
+
+    createNewConversation(title = null) {
+        const id = `conv_${this.conversationCounter++}`;
+        const conversation = {
+            id: id,
+            title: title || 'New Chat',
+            messages: [],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            settings: {
+                temperature: 0.8,
+                topP: 0.95,
+                systemPrompt: ''
+            }
+        };
+        
+        this.conversations.set(id, conversation);
+        this.currentConversationId = id;
+        this.saveConversations();
+        return conversation;
+    }
+
+    switchToConversation(conversationId) {
+        if (this.conversations.has(conversationId)) {
+            this.currentConversationId = conversationId;
+            this.saveConversations();
+            return this.conversations.get(conversationId);
+        }
+        return null;
+    }
+
+    getCurrentConversation() {
+        if (!this.currentConversationId || !this.conversations.has(this.currentConversationId)) {
+            return this.createNewConversation();
+        }
+        return this.conversations.get(this.currentConversationId);
+    }
+
+    updateConversationTitle(conversationId, title) {
+        const conversation = this.conversations.get(conversationId);
+        if (conversation) {
+            conversation.title = title;
+            conversation.updatedAt = Date.now();
+            this.saveConversations();
+        }
+    }
+
+    deleteConversation(conversationId) {
+        if (this.conversations.size <= 1) {
+            // Always keep at least one conversation
+            const conversation = this.conversations.get(conversationId);
+            if (conversation) {
+                conversation.messages = [];
+                conversation.title = 'New Chat';
+                conversation.updatedAt = Date.now();
+                this.saveConversations();
+            }
+            return;
+        }
+
+        this.conversations.delete(conversationId);
+        
+        if (this.currentConversationId === conversationId) {
+            // Switch to the most recently updated conversation
+            const sortedConversations = Array.from(this.conversations.values())
+                .sort((a, b) => b.updatedAt - a.updatedAt);
+            this.currentConversationId = sortedConversations[0]?.id || null;
+        }
+        
+        this.saveConversations();
+    }
+
+    addMessageToCurrentConversation(role, content) {
+        const conversation = this.getCurrentConversation();
+        const message = {
+            role: role,
+            content: content,
+            timestamp: Date.now()
+        };
+        
+        conversation.messages.push(message);
+        conversation.updatedAt = Date.now();
+        
+        // Auto-generate title from first user message
+        if (role === 'user' && conversation.messages.filter(m => m.role === 'user').length === 1) {
+            const title = content.length > 30 ? content.substring(0, 30) + '...' : content;
+            conversation.title = title;
+        }
+        
+        this.saveConversations();
+        return message;
+    }
+
+    getConversationsList() {
+        return Array.from(this.conversations.values())
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+
+    saveConversations() {
+        try {
+            const data = {
+                conversations: Object.fromEntries(this.conversations),
+                currentConversationId: this.currentConversationId,
+                conversationCounter: this.conversationCounter
+            };
+            localStorage.setItem('conversationsData', JSON.stringify(data));
+        } catch (e) {
+            console.error('Failed to save conversations:', e);
+        }
+    }
+
+    loadConversations() {
+        try {
+            const savedData = localStorage.getItem('conversationsData');
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                this.conversations = new Map(Object.entries(data.conversations || {}));
+                this.currentConversationId = data.currentConversationId;
+                this.conversationCounter = data.conversationCounter || 1;
+            }
+            
+            // Migrate old single chat history if exists
+            const oldHistory = localStorage.getItem('chatHistory');
+            if (oldHistory && this.conversations.size === 0) {
+                const messages = JSON.parse(oldHistory);
+                if (Array.isArray(messages) && messages.length > 0) {
+                    const conversation = this.createNewConversation('Imported Chat');
+                    conversation.messages = messages;
+                    this.saveConversations();
+                    localStorage.removeItem('chatHistory'); // Clean up old data
+                }
+            }
+            
+            // Ensure we have at least one conversation
+            if (this.conversations.size === 0) {
+                this.createNewConversation();
+            }
+        } catch (e) {
+            console.error('Failed to load conversations:', e);
+            this.createNewConversation();
+        }
+    }
+}
+
 // Centralized Chat State Management
 class ChatState {
     constructor(dashboard) {
@@ -112,8 +264,9 @@ class IkLlamaDashboard {
         this.config = {};
         this.buildEventSource = null;
         this.isBuildInProgress = false;
-        this.conversationHistory = [];
-        this.maxHistoryLength = 20;
+        
+        // Initialize conversation management
+        this.conversationManager = new ConversationManager();
         
         // Initialize centralized chat state
         this.chatState = new ChatState(this);
@@ -128,8 +281,8 @@ class IkLlamaDashboard {
         this.loadInitialData();
         this.startStatusUpdates();
         this.setupTheme();
-        // Load saved chat history at startup
-        this.loadChatHistory();
+        // Initialize conversations and render UI
+        this.initializeConversations();
     }
 
     initializeElements() {
@@ -202,6 +355,8 @@ class IkLlamaDashboard {
 
         
         // Chat Section Elements
+        this.conversationsList = document.getElementById('conversations-list');
+        this.newChatBtn = document.getElementById('new-chat-btn');
         this.chatModelSelect = document.getElementById('chat-model-select');
         this.currentModelDisplay = document.getElementById('current-model-display');
         this.temperature = document.getElementById('temperature');
@@ -481,6 +636,13 @@ class IkLlamaDashboard {
                     e.preventDefault();
                     this.sendMessage();
                 }
+            });
+        }
+
+        // Conversation Management
+        if (this.newChatBtn) {
+            this.newChatBtn.addEventListener('click', () => {
+                this.createNewConversation();
             });
         }
         
@@ -1813,9 +1975,7 @@ class IkLlamaDashboard {
         this.userInput.value = '';
         this.addMessage('user', message);
         
-        // Add to conversation history (will be saved after response completes)
-        this.conversationHistory.push({ role: 'user', content: message });
-        this.trimConversationHistory();
+        // Message is automatically added to conversation by addMessage()
 
         // Set generating state
         this.chatState.setGenerating(true);
@@ -1843,7 +2003,7 @@ class IkLlamaDashboard {
                 body: JSON.stringify({
                     message: message,
                     config: config,
-                    history: this.conversationHistory
+                    history: this.conversationManager.getCurrentConversation()?.messages || []
                 }),
                 signal: abortController.signal
             });
@@ -1854,7 +2014,7 @@ class IkLlamaDashboard {
 
             // Hide typing indicator and create assistant message element
             this.hideTypingIndicator();
-            assistantMessage = this.addMessage('assistant', '');
+            assistantMessage = this.addMessage('assistant', '', null, true); // skipSaving = true for initial empty message
             
             // Set streaming state with abort controller
             this.chatState.setStreaming(true, abortController);
@@ -1891,7 +2051,11 @@ class IkLlamaDashboard {
                             if (data.token) {
                                 hasStartedReceiving = true;
                                 fullResponse += data.token;
-                                assistantMessage.textContent = fullResponse;
+                                // Update the message content during streaming with real-time markdown
+                                const messageContent = assistantMessage.querySelector('.message-content');
+                                if (messageContent) {
+                                    messageContent.innerHTML = this.processMessageContent(fullResponse, true);
+                                }
                                 this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
                             }
                             
@@ -1908,18 +2072,25 @@ class IkLlamaDashboard {
 
             // If we never received any tokens, show a helpful message
             if (!hasStartedReceiving && !abortController.signal.aborted) {
-                assistantMessage.textContent = 'No response received. Please try again.';
+                const messageContent = assistantMessage.querySelector('.message-content');
+                if (messageContent) {
+                    messageContent.textContent = 'No response received. Please try again.';
+                }
                 assistantMessage.className = 'message system';
                 return;
             }
 
             // Only save to history if not aborted
             if (!abortController.signal.aborted) {
-                // Clean response content and save to conversation history
+                // Process the final response with markdown and thinking tags
+                const messageContent = assistantMessage.querySelector('.message-content');
+                if (messageContent) {
+                    messageContent.innerHTML = this.processMessageContent(fullResponse);
+                }
+                
+                // Clean response content and save to current conversation
                 const cleanedResponse = this.cleanResponseContent(fullResponse);
-                this.conversationHistory.push({ role: 'assistant', content: cleanedResponse });
-                this.trimConversationHistory();
-                this.saveChatHistory();
+                this.conversationManager.addMessageToCurrentConversation('assistant', cleanedResponse);
             }
 
         } catch (error) {
@@ -1930,14 +2101,19 @@ class IkLlamaDashboard {
             
             // Only handle error if not aborted by user
             if (!abortController.signal.aborted) {
-                // Remove user message from history if streaming failed
-                if (this.conversationHistory.length > 0 && 
-                    this.conversationHistory[this.conversationHistory.length - 1].role === 'user') {
-                    this.conversationHistory.pop();
+                // Remove user message from current conversation if streaming failed
+                const currentConv = this.conversationManager.getCurrentConversation();
+                if (currentConv && currentConv.messages.length > 0 && 
+                    currentConv.messages[currentConv.messages.length - 1].role === 'user') {
+                    currentConv.messages.pop();
+                    this.conversationManager.saveConversations();
                 }
                 
                 if (assistantMessage) {
-                    assistantMessage.textContent = `Error: ${error.message}`;
+                    const messageContent = assistantMessage.querySelector('.message-content');
+                    if (messageContent) {
+                        messageContent.textContent = `Error: ${error.message}`;
+                    }
                     assistantMessage.className = 'message system';
                 } else {
                     this.addMessage('system', `Error: ${error.message}`);
@@ -1951,20 +2127,40 @@ class IkLlamaDashboard {
         }
     }
     
-    addMessage(type, content, timestamp = null) {
+    addMessage(type, content, timestamp = null, skipSaving = false) {
         if (!this.chatMessages) return null;
         
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}`;
-        messageDiv.textContent = content;
+        
+        // Create message content container
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        
+        // Process content based on message type
+        if (type === 'assistant') {
+            // For assistant messages, process markdown and thinking tags
+            messageContent.innerHTML = this.processMessageContent(content);
+        } else {
+            // For user and system messages, use plain text with basic formatting
+            messageContent.innerHTML = this.escapeHtml(content).replace(/\n/g, '<br>');
+        }
+        
+        messageDiv.appendChild(messageContent);
         
         // Add timestamp if provided or create one
         if (timestamp || type !== 'system') {
             const timestampDiv = document.createElement('div');
             timestampDiv.className = 'message-timestamp';
-            const time = timestamp || new Date();
+            // Handle both Date objects and timestamp numbers
+            const time = timestamp ? (typeof timestamp === 'number' ? new Date(timestamp) : timestamp) : new Date();
             timestampDiv.textContent = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             messageDiv.appendChild(timestampDiv);
+        }
+        
+        // Add message to conversation manager (except for system messages and when loading existing messages)
+        if (type !== 'system' && !skipSaving) {
+            this.conversationManager.addMessageToCurrentConversation(type, content);
         }
         
         this.chatMessages.appendChild(messageDiv);
@@ -2016,34 +2212,160 @@ class IkLlamaDashboard {
             this.hideTypingIndicator();
             this.addMessage('system', 'Generation stopped by user.');
             
-            // Remove the last user message from history if generation was stopped
-            if (this.conversationHistory.length > 0 && 
-                this.conversationHistory[this.conversationHistory.length - 1].role === 'user') {
-                this.conversationHistory.pop();
+            // Remove the last user message from current conversation if generation was stopped
+            const currentConv = this.conversationManager.getCurrentConversation();
+            if (currentConv && currentConv.messages.length > 0 && 
+                currentConv.messages[currentConv.messages.length - 1].role === 'user') {
+                currentConv.messages.pop();
+                this.conversationManager.saveConversations();
             }
         }
     }
     
     // Clear chat with confirmation
     clearChatWithConfirmation() {
-        if (this.conversationHistory.length === 0) {
+        const currentConv = this.conversationManager.getCurrentConversation();
+        if (!currentConv || currentConv.messages.length === 0) {
             this.addMessage('system', 'Chat is already empty.');
             return;
         }
         
-        if (confirm('Are you sure you want to clear the entire conversation? This action cannot be undone.')) {
-            this.clearConversation();
+        if (confirm('Are you sure you want to clear the current conversation? This action cannot be undone.')) {
+            // Clear current conversation messages
+            currentConv.messages = [];
+            this.conversationManager.saveConversations();
+            this.clearChatDisplay();
+            this.addMessage('system', 'Conversation cleared.');
+            this.renderConversationsList();
         }
     }
     
-    // Conversation history helpers
+    // Markdown and content processing helpers
+    processMessageContent(content, isStreaming = false) {
+        if (!content || typeof content !== 'string') {
+            return '';
+        }
+        
+        let processedContent = content;
+        
+        if (isStreaming) {
+            // During streaming, handle incomplete thinking tags
+            // Handle complete <thinking> tags first
+            processedContent = processedContent.replace(/<thinking>([\s\S]*?)<\/thinking>/gi, (match, thinkingContent) => {
+                const trimmedContent = thinkingContent.trim();
+                return `<div class="thinking-content">${this.renderMarkdown(trimmedContent, isStreaming)}</div>`;
+            });
+            
+            // Handle complete <think> tags first
+            processedContent = processedContent.replace(/<think>([\s\S]*?)<\/think>/gi, (match, thinkingContent) => {
+                const trimmedContent = thinkingContent.trim();
+                return `<div class="thinking-content">${this.renderMarkdown(trimmedContent, isStreaming)}</div>`;
+            });
+            
+            // Handle incomplete <thinking> tags (opening tag without closing)
+            processedContent = processedContent.replace(/<thinking>([\s\S]*)$/gi, (match, thinkingContent) => {
+                const trimmedContent = thinkingContent.trim();
+                return `<div class="thinking-content">${this.renderMarkdown(trimmedContent, isStreaming)}</div>`;
+            });
+            
+            // Handle incomplete <think> tags (opening tag without closing)
+            processedContent = processedContent.replace(/<think>([\s\S]*)$/gi, (match, thinkingContent) => {
+                const trimmedContent = thinkingContent.trim();
+                return `<div class="thinking-content">${this.renderMarkdown(trimmedContent, isStreaming)}</div>`;
+            });
+        } else {
+            // For final content, only handle complete tags
+            processedContent = processedContent.replace(/<thinking>([\s\S]*?)<\/thinking>/gi, (match, thinkingContent) => {
+                const trimmedContent = thinkingContent.trim();
+                return `<div class="thinking-content">${this.renderMarkdown(trimmedContent, isStreaming)}</div>`;
+            });
+            
+            processedContent = processedContent.replace(/<think>([\s\S]*?)<\/think>/gi, (match, thinkingContent) => {
+                const trimmedContent = thinkingContent.trim();
+                return `<div class="thinking-content">${this.renderMarkdown(trimmedContent, isStreaming)}</div>`;
+            });
+        }
+        
+        // Process markdown for the remaining content
+        return this.renderMarkdown(processedContent, isStreaming);
+    }
+    
+    renderMarkdown(content, isStreaming = false) {
+        if (!window.marked) {
+            console.warn('Marked.js not loaded, falling back to plain text');
+            return this.escapeHtml(content).replace(/\n/g, '<br>');
+        }
+        
+        // Configure marked with security settings
+        marked.setOptions({
+            breaks: true,        // Convert \n to <br>
+            gfm: true,          // GitHub Flavored Markdown
+            sanitize: false,    // We'll handle sanitization ourselves
+            headerIds: false,   // Don't generate header IDs
+            mangle: false       // Don't mangle email addresses
+        });
+        
+        try {
+            // For streaming, handle incomplete markdown more gracefully
+            let processedContent = content;
+            if (isStreaming) {
+                // Add temporary closing for incomplete code blocks
+                const codeBlockCount = (content.match(/```/g) || []).length;
+                if (codeBlockCount % 2 === 1) {
+                    processedContent += '\n```';
+                }
+                
+                // Handle incomplete bold/italic
+                const boldCount = (content.match(/\*\*/g) || []).length;
+                if (boldCount % 2 === 1) {
+                    processedContent += '**';
+                }
+                
+                const italicCount = (content.match(/(?<!\*)\*(?!\*)/g) || []).length;
+                if (italicCount % 2 === 1) {
+                    processedContent += '*';
+                }
+            }
+            
+            // Parse markdown to HTML
+            let html = marked.parse(processedContent);
+            
+            // Basic sanitization - remove potentially dangerous elements
+            html = this.sanitizeHtml(html);
+            
+            return html;
+        } catch (error) {
+            console.error('Markdown parsing error:', error);
+            return this.escapeHtml(content).replace(/\n/g, '<br>');
+        }
+    }
+    
+
+    
+    sanitizeHtml(html) {
+        // Basic HTML sanitization - remove script tags and dangerous attributes
+        html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+        html = html.replace(/on\w+\s*=\s*["'][^"']*["']/gi, ''); // Remove event handlers
+        html = html.replace(/javascript:/gi, ''); // Remove javascript: URLs
+        
+        return html;
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Legacy function for backward compatibility
     cleanResponseContent(content) {
         if (!content || typeof content !== 'string') {
             return '';
         }
         
-        // Remove thinking tags and their content
+        // Remove thinking tags and their content for history storage
         let cleaned = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+        cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '');
         
         // Clean up any remaining whitespace issues
         cleaned = cleaned.trim();
@@ -2067,91 +2389,7 @@ class IkLlamaDashboard {
         return true;
     }
     
-    trimConversationHistory() {
-        if (this.conversationHistory.length > this.maxHistoryLength) {
-            this.conversationHistory = this.conversationHistory.slice(-this.maxHistoryLength);
-        }
-    }
-
-    saveChatHistory() {
-        try {
-            // Validate history before saving
-            const validHistory = this.conversationHistory.filter(entry => this.validateHistoryEntry(entry));
-            
-            if (validHistory.length !== this.conversationHistory.length) {
-                console.warn('Some invalid history entries were filtered out during save');
-                this.conversationHistory = validHistory;
-            }
-            
-            localStorage.setItem('chatHistory', JSON.stringify(this.conversationHistory));
-        } catch (e) {
-            console.error('Failed to save chat history:', e);
-            
-            // If localStorage is full, try to clear old data and retry
-            if (e.name === 'QuotaExceededError') {
-                try {
-                    // Keep only the last 10 messages and retry
-                    this.conversationHistory = this.conversationHistory.slice(-10);
-                    localStorage.setItem('chatHistory', JSON.stringify(this.conversationHistory));
-                    console.log('Reduced history size and retried save successfully');
-                } catch (retryError) {
-                    console.error('Failed to save even reduced history:', retryError);
-                }
-            }
-        }
-    }
-
-    loadChatHistory() {
-        try {
-            const savedHistory = localStorage.getItem('chatHistory');
-            if (savedHistory) {
-                const parsedHistory = JSON.parse(savedHistory);
-                
-                // Validate loaded history
-                if (Array.isArray(parsedHistory)) {
-                    this.conversationHistory = parsedHistory.filter(entry => this.validateHistoryEntry(entry));
-                    
-                    // Clean any thinking tags from loaded history
-                    this.conversationHistory = this.conversationHistory.map(entry => ({
-                        ...entry,
-                        content: entry.role === 'assistant' ? this.cleanResponseContent(entry.content) : entry.content
-                    }));
-                    
-                    this.renderSavedChatHistory();
-                } else {
-                    console.warn('Invalid history format in localStorage, starting fresh');
-                    this.conversationHistory = [];
-                }
-            }
-        } catch (e) {
-            console.error('Failed to load chat history:', e);
-            this.conversationHistory = [];
-            
-            // Clear corrupted data
-            try {
-                localStorage.removeItem('chatHistory');
-            } catch (clearError) {
-                console.error('Failed to clear corrupted history:', clearError);
-            }
-        }
-    }
-
-    renderSavedChatHistory() {
-        if (!this.chatMessages) return;
-        this.chatMessages.innerHTML = '';
-        this.conversationHistory.forEach(msg => {
-            this.addMessage(msg.role, msg.content);
-        });
-    }
-
-    clearConversation() {
-        this.conversationHistory = [];
-        this.saveChatHistory();
-        if (this.chatMessages) {
-            this.chatMessages.innerHTML = '';
-        }
-        this.addMessage('system', 'Chat history cleared.');
-    }
+    // Legacy methods removed - now handled by ConversationManager
     
     // Models Page Status Functions
     updateModelsPageStatus(data, errorMessage = null) {
@@ -2391,9 +2629,151 @@ class IkLlamaDashboard {
         
         await this.unloadModel(true);
     }
+
+    // Conversation Management Methods
+    createNewConversation() {
+        const conversationId = this.conversationManager.createNewConversation();
+        this.renderConversationsList();
+        this.clearChatDisplay();
+        this.addMessage('system', 'New conversation started.');
+    }
+
+    switchConversation(conversationId) {
+        this.conversationManager.switchToConversation(conversationId);
+        this.renderConversationsList();
+        this.loadCurrentConversationMessages();
+        this.updateChatSettings();
+    }
+
+    deleteConversation(conversationId) {
+        if (confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) {
+            this.conversationManager.deleteConversation(conversationId);
+            this.renderConversationsList();
+            
+            // If we deleted the current conversation, switch to another or create new
+            const currentConv = this.conversationManager.getCurrentConversation();
+            if (!currentConv) {
+                this.createNewConversation();
+            } else {
+                this.loadCurrentConversationMessages();
+            }
+        }
+    }
+
+    renderConversationsList() {
+        if (!this.conversationsList) return;
+        
+        const conversations = this.conversationManager.getConversationsList();
+        const currentConvId = this.conversationManager.currentConversationId;
+        
+        this.conversationsList.innerHTML = '';
+        
+        conversations.forEach(conv => {
+            const convItem = document.createElement('div');
+            convItem.className = `conversation-item ${conv.id === currentConvId ? 'active' : ''}`;
+            convItem.dataset.conversationId = conv.id;
+            
+            convItem.innerHTML = `
+                <div class="conversation-title">${this.escapeHtml(conv.title)}</div>
+                <div class="conversation-meta">
+                    <span class="conversation-date">${new Date(conv.updatedAt).toLocaleDateString()}</span>
+                    <span class="conversation-count">${conv.messages.length} messages</span>
+                </div>
+                <div class="conversation-actions">
+                    <button class="conversation-action-btn delete-btn" data-conversation-id="${conv.id}" title="Delete conversation">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"></path>
+                        </svg>
+                    </button>
+                </div>
+            `;
+            
+            // Add click listener for switching conversations
+            convItem.addEventListener('click', (e) => {
+                if (!e.target.closest('.conversation-actions')) {
+                    this.switchConversation(conv.id);
+                }
+            });
+            
+            // Add delete button listener
+            const deleteBtn = convItem.querySelector('.delete-btn');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.deleteConversation(conv.id);
+            });
+            
+            this.conversationsList.appendChild(convItem);
+        });
+    }
+
+    loadCurrentConversationMessages() {
+        const conversation = this.conversationManager.getCurrentConversation();
+        if (!conversation) return;
+        
+        this.clearChatDisplay();
+        
+        conversation.messages.forEach(message => {
+            this.addMessage(message.role, message.content, message.timestamp, true); // skipSaving = true
+        });
+        
+        // Scroll to bottom
+        if (this.chatMessages) {
+            this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        }
+    }
+
+    updateChatSettings() {
+        const conversation = this.conversationManager.getCurrentConversation();
+        if (!conversation) return;
+        
+        // Update UI elements with conversation settings
+        if (this.temperature) {
+            this.temperature.value = conversation.settings.temperature;
+            const tempDisplay = document.getElementById('temperature-display');
+            if (tempDisplay) tempDisplay.textContent = conversation.settings.temperature;
+        }
+        
+        if (this.topP) {
+            this.topP.value = conversation.settings.topP;
+            const topPDisplay = document.getElementById('top-p-display');
+            if (topPDisplay) topPDisplay.textContent = conversation.settings.topP;
+        }
+        
+        if (this.systemPrompt) {
+            this.systemPrompt.value = conversation.settings.systemPrompt;
+        }
+    }
+
+    clearChatDisplay() {
+        if (this.chatMessages) {
+            this.chatMessages.innerHTML = '';
+        }
+    }
+
+    initializeConversations() {
+        // Load conversations from storage
+        this.conversationManager.loadConversations();
+        
+        // Render the conversations list
+        this.renderConversationsList();
+        
+        // Load current conversation messages if any exist
+        const currentConv = this.conversationManager.getCurrentConversation();
+        if (currentConv && currentConv.messages.length > 0) {
+            this.loadCurrentConversationMessages();
+            this.updateChatSettings();
+        } else {
+            // Create a new conversation if none exist
+            if (this.conversationManager.getConversationsList().length === 0) {
+                this.createNewConversation();
+            }
+        }
+    }
 }
 
 // Initialize the dashboard when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    const dashboard = new IkLlamaDashboard();
+    window.app = new IkLlamaDashboard();
+    
+
 });
