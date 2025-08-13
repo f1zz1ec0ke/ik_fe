@@ -484,12 +484,6 @@ class IkLlamaDashboard {
             });
         }
         
-        if (this.clearChatBtn) {
-            this.clearChatBtn.addEventListener('click', () => {
-                this.clearConversation();
-            });
-        }
-        
         // Theme Toggle
         if (this.themeToggle) {
             this.themeToggle.addEventListener('click', () => {

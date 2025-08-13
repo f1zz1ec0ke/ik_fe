@@ -618,7 +618,7 @@ def get_package_info():
         else:
             return jsonify({
                 'success': True,
-                'version': '1.0.0',
+                'version': 'e082df47',
                 'name': 'ik_fe'
             })
     except Exception as e:
@@ -889,8 +889,8 @@ def chat():
                 "content": msg['content']
             })
         
-        # Add the current user message
-        messages.append({"role": "user", "content": message})
+        # Note: The current user message is already included in the history
+        # from the frontend, so we don't need to add it again here
         
         def generate():
             success, response = llama_server.chat_completion(messages, config)
