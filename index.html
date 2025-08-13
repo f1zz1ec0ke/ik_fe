@@ -238,7 +238,8 @@
                             <h3>Current Model Status</h3>
                             <div class="card-actions">
                                 <button class="icon-button" id="refresh-model-status" title="Refresh status">🔄</button>
-                                <button class="icon-button" id="unload-model" title="Unload current model" style="display: none;">⏹️</button>
+                                <button class="icon-button" id="unload-model" title="Unload current model">⏹️</button>
+                                <button class="icon-button" id="force-unload-model" title="Force unload current model" style="display: none;">🛑</button>
                             </div>
                         </div>
                         <div class="card-content">
@@ -314,46 +315,7 @@
                         </div>
                     </div>
 
-                    <!-- Model Switching Card -->
-                    <div class="section-card" id="model-switch-card">
-                        <div class="card-header">
-                            <h3>Model Switching</h3>
-                            <div class="card-actions">
-                                <button class="icon-button" id="refresh-models" title="Refresh available models">🔄</button>
-                            </div>
-                        </div>
-                        <div class="card-content">
-                            <div class="model-switch-controls">
-                                <div class="form-group">
-                                    <label for="switch-model-dropdown">Switch to Model:</label>
-                                    <div class="select-wrapper">
-                                        <select id="switch-model-dropdown">
-                                            <option value="">Select a model to switch to...</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="switch-model-path">Custom Model Path:</label>
-                                    <div class="input-with-button">
-                                        <input type="text" id="switch-model-path" placeholder="Enter path to model file...">
-                                        <button class="icon-button" id="browse-switch-model">📁</button>
-                                    </div>
-                                </div>
-                                <div class="model-actions">
-                                    <button class="primary-button" id="switch-model-btn">Switch Model</button>
-                                </div>
-                            </div>
-                            
-                            <div class="current-model-section">
-                                <h4>Current Model</h4>
-                                <div class="current-model-info" id="current-model-info">
-                                    <div class="no-model-message" id="no-model-message">
-                                        No model currently loaded
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+
                 </div>
             </section>
 

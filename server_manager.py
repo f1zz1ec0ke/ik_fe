@@ -439,9 +439,9 @@ class LlamaServerManager:
             if self.server_process:
                 self._stop_server_internal(force=True)
     
-    def stop_server(self):
+    def stop_server(self, force=False):
         """Stop the llama-server"""
-        return self._stop_server_internal(force=False)
+        return self._stop_server_internal(force=force)
     
     def _cleanup_on_exit(self):
         """Cleanup handler called on exit"""

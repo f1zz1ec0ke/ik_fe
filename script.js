@@ -190,17 +190,12 @@ class IkLlamaDashboard {
         this.modelsPageLoading = document.getElementById('models-page-loading');
         this.refreshModelStatusBtn = document.getElementById('refresh-model-status');
         this.unloadModelBtn = document.getElementById('unload-model');
+        this.forceUnloadModelBtn = document.getElementById('force-unload-model');
         
-        // Model Switching Elements
-        this.switchModelDropdown = document.getElementById('switch-model-dropdown');
-        this.switchModelPath = document.getElementById('switch-model-path');
-        this.browseSwitchModelBtn = document.getElementById('browse-switch-model');
-        this.switchModelBtn = document.getElementById('switch-model-btn');
-        this.refreshModelsBtn = document.getElementById('refresh-models');
-        this.currentModelInfo = document.getElementById('current-model-info');
-        this.noModelMessage = document.getElementById('no-model-message');
+
         
         // Chat Section Elements
+        this.chatModelSelect = document.getElementById('chat-model-select');
         this.currentModelDisplay = document.getElementById('current-model-display');
         this.temperature = document.getElementById('temperature');
         this.tempValue = document.getElementById('temp-value');
@@ -382,24 +377,13 @@ class IkLlamaDashboard {
             });
         }
         
-        // Model Switching Event Listeners
-        if (this.switchModelDropdown) {
-            this.switchModelDropdown.addEventListener('change', () => {
-                this.updateSwitchModelPath();
+        if (this.forceUnloadModelBtn) {
+            this.forceUnloadModelBtn.addEventListener('click', () => {
+                this.forceUnloadModel();
             });
         }
         
-        if (this.switchModelBtn) {
-            this.switchModelBtn.addEventListener('click', () => {
-                this.switchModel();
-            });
-        }
-        
-        if (this.refreshModelsBtn) {
-            this.refreshModelsBtn.addEventListener('click', () => {
-                this.refreshAvailableModels();
-            });
-        }
+
         
         // Settings Section
         this.settingsTabs.forEach(tab => {
@@ -844,6 +828,29 @@ class IkLlamaDashboard {
         }
     }
 
+    // Update chat model dropdown with currently loaded model
+    updateChatModelDisplay(modelName = null) {
+        if (this.chatModelSelect) {
+            // Clear existing options
+            this.chatModelSelect.innerHTML = '';
+            
+            if (modelName) {
+                // Add the loaded model as an option
+                const option = document.createElement('option');
+                option.value = modelName;
+                option.textContent = modelName;
+                option.selected = true;
+                this.chatModelSelect.appendChild(option);
+            } else {
+                // No model loaded
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = 'No model selected';
+                this.chatModelSelect.appendChild(defaultOption);
+            }
+        }
+    }
+
     loadModel() {
         const modelPath = this.modelDropdown.value || this.modelPath.value;
         
@@ -1077,6 +1084,9 @@ class IkLlamaDashboard {
                     if (this.modelStatusText) {
                         this.modelStatusText.textContent = data.model_name || 'Model loaded';
                     }
+                    
+                    // Update chat model dropdown with loaded model
+                    this.updateChatModelDisplay(data.model_name || 'Model loaded');
                     
                     // Remove auto-navigation - let user decide when to go to chat
                     // this.navigateTo('chat');
@@ -1441,12 +1451,18 @@ class IkLlamaDashboard {
                             this.modelStatusIcon.textContent = '✅';
                             this.modelStatusText.textContent = newStatus;
                             console.log('Updated status to:', newStatus);
+                            
+                            // Update chat model dropdown with loaded model
+                            this.updateChatModelDisplay(newStatus);
                         }
                     } else {
                         if (currentStatus !== 'No model loaded') {
                             this.modelStatusIcon.textContent = '❓';
                             this.modelStatusText.textContent = 'No model loaded';
                             console.log('Updated status to: No model loaded');
+                            
+                            // Update chat model dropdown to show no model
+                            this.updateChatModelDisplay(null);
                         }
                     }
                 }
@@ -2015,16 +2031,49 @@ class IkLlamaDashboard {
             this.modelsPageStatusIcon.className = 'status-icon success';
             this.modelsPageStatusText.textContent = 'Model Loaded';
             this.modelsPageStatusDetails.textContent = data.model_name || 'Model is ready for inference';
+            
+            // Show unload and force unload buttons when model is loaded
+            if (this.unloadModelBtn) {
+                this.unloadModelBtn.style.display = 'inline-block';
+            }
+            if (this.forceUnloadModelBtn) {
+                this.forceUnloadModelBtn.style.display = 'inline-block';
+            }
+            
+            // Update chat model dropdown with loaded model
+            this.updateChatModelDisplay(data.model_name || 'Model loaded');
         } else if (data.server_running) {
             this.modelsPageStatusIcon.textContent = '⚠️';
             this.modelsPageStatusIcon.className = 'status-icon warning';
             this.modelsPageStatusText.textContent = 'Server Running';
             this.modelsPageStatusDetails.textContent = 'No model loaded - Select and load a model';
+            
+            // Hide unload and force unload buttons when no model is loaded
+            if (this.unloadModelBtn) {
+                this.unloadModelBtn.style.display = 'none';
+            }
+            if (this.forceUnloadModelBtn) {
+                this.forceUnloadModelBtn.style.display = 'none';
+            }
+            
+            // Update chat model dropdown to show no model
+            this.updateChatModelDisplay(null);
         } else {
             this.modelsPageStatusIcon.textContent = '❌';
             this.modelsPageStatusIcon.className = 'status-icon error';
             this.modelsPageStatusText.textContent = 'Server Offline';
             this.modelsPageStatusDetails.textContent = 'Server is not running';
+            
+            // Hide unload and force unload buttons when server is offline
+            if (this.unloadModelBtn) {
+                this.unloadModelBtn.style.display = 'none';
+            }
+            if (this.forceUnloadModelBtn) {
+                this.forceUnloadModelBtn.style.display = 'none';
+            }
+            
+            // Update chat model dropdown to show no model
+            this.updateChatModelDisplay(null);
         }
     }
     
@@ -2037,8 +2086,8 @@ class IkLlamaDashboard {
         this.checkRepoStatus();
     }
     
-    async unloadModel() {
-        if (!confirm('Are you sure you want to unload the current model?')) {
+    async unloadModel(force = false) {
+        if (!force && !confirm('Are you sure you want to unload the current model?')) {
             return;
         }
         
@@ -2048,41 +2097,118 @@ class IkLlamaDashboard {
                 this.modelsPageLoading.style.display = 'flex';
             }
             
+            console.log(`Attempting to ${force ? 'force ' : ''}unload model...`);
+            
+            // Set up timeout for automatic force unload after 30 seconds
+            let timeoutId;
+            let forceUnloadPromise;
+            
+            if (!force) {
+                timeoutId = setTimeout(async () => {
+                    console.log('Unload timeout reached, attempting force unload...');
+                    try {
+                        const forceResponse = await fetch('/api/unload_model', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ force: true })
+                        });
+                        
+                        if (forceResponse.ok) {
+                            const forceData = await forceResponse.json();
+                            if (forceData.success) {
+                                this.handleUnloadSuccess('Model force unloaded after timeout');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Force unload after timeout failed:', error);
+                    }
+                }, 30000); // 30 seconds
+            }
+            
             const response = await fetch('/api/unload_model', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                }
+                },
+                body: JSON.stringify({ force: force })
             });
             
+            // Clear timeout if normal unload succeeds
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            
+            console.log('Unload model response status:', response.status);
+            
             if (response.ok) {
-                // Update status immediately
-                this.modelsPageStatusIcon.textContent = '⚠️';
-                this.modelsPageStatusIcon.className = 'status-icon warning';
-                this.modelsPageStatusText.textContent = 'Model Unloaded';
-                this.modelsPageStatusDetails.textContent = 'Model has been unloaded successfully';
+                const data = await response.json();
+                console.log('Unload model response data:', data);
                 
-                // Also update the welcome page status
-                if (this.modelStatusIcon && this.modelStatusText) {
-                    this.modelStatusIcon.textContent = '❓';
-                    this.modelStatusText.textContent = 'No model loaded';
+                if (data.success) {
+                    this.handleUnloadSuccess(data.message);
+                } else {
+                    throw new Error(data.error || 'Failed to unload model');
                 }
-                
-                // Refresh status after a short delay
-                setTimeout(() => {
-                    this.refreshModelStatus();
-                }, 1000);
             } else {
-                throw new Error('Failed to unload model');
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP ${response.status}: Failed to unload model`);
             }
         } catch (error) {
             console.error('Error unloading model:', error);
-            this.updateModelsPageStatus(null, 'Failed to unload model');
+            
+            // Show error in UI
+            this.modelsPageStatusIcon.textContent = '❌';
+            this.modelsPageStatusIcon.className = 'status-icon error';
+            this.modelsPageStatusText.textContent = 'Unload Failed';
+            this.modelsPageStatusDetails.textContent = `Error: ${error.message}`;
+            
+            // Show alert to user
+            alert(`Failed to unload model: ${error.message}`);
         } finally {
             if (this.modelsPageLoading) {
                 this.modelsPageLoading.style.display = 'none';
             }
         }
+    }
+    
+    handleUnloadSuccess(message) {
+        // Update status immediately
+        this.modelsPageStatusIcon.textContent = '⚠️';
+        this.modelsPageStatusIcon.className = 'status-icon warning';
+        this.modelsPageStatusText.textContent = 'Model Unloaded';
+        this.modelsPageStatusDetails.textContent = message || 'Model has been unloaded successfully';
+        
+        // Hide unload and force unload buttons since no model is loaded
+        if (this.unloadModelBtn) {
+            this.unloadModelBtn.style.display = 'none';
+        }
+        if (this.forceUnloadModelBtn) {
+            this.forceUnloadModelBtn.style.display = 'none';
+        }
+        
+        // Also update the welcome page status
+        if (this.modelStatusIcon && this.modelStatusText) {
+            this.modelStatusIcon.textContent = '❓';
+            this.modelStatusText.textContent = 'No model loaded';
+        }
+        
+        // Update chat model dropdown to show no model
+        this.updateChatModelDisplay(null);
+        
+        // Refresh status after a short delay
+        setTimeout(() => {
+            this.refreshModelStatus();
+        }, 1000);
+    }
+    
+    async forceUnloadModel() {
+        if (!confirm('Are you sure you want to FORCE unload the current model? This will terminate the server process immediately.')) {
+            return;
+        }
+        
+        await this.unloadModel(true);
     }
 }
 

@@ -657,13 +657,45 @@ def load_model():
 def unload_model():
     """Stop server and unload model"""
     try:
-        llama_server.stop_server()
-        return jsonify({
-            'success': True,
-            'message': 'Model unloaded successfully',
-            'error': None
-        })
+        data = request.json or {}
+        force = data.get('force', False)
+        
+        logger.info(f"Attempting to {'force ' if force else ''}unload model and stop server...")
+        
+        # Check if server is actually running
+        if not llama_server.is_server_running:
+            logger.warning("Unload requested but server is not running")
+            return jsonify({
+                'success': True,
+                'message': 'No model was loaded (server not running)',
+                'error': None
+            })
+        
+        # Attempt to stop the server
+        success = llama_server.stop_server(force=force)
+        
+        if success:
+            message = f"Model {'force ' if force else ''}unloaded successfully"
+            logger.info(message)
+            # Clear the model status cache
+            global _model_status_cache, _model_status_last_update
+            _model_status_cache = None
+            _model_status_last_update = 0
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'error': None
+            })
+        else:
+            logger.error("Failed to stop server during unload")
+            return jsonify({
+                'success': False,
+                'error': 'Failed to stop server process'
+            }), 500
+            
     except Exception as e:
+        logger.error(f"Error during model unload: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
