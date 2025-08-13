@@ -6,7 +6,7 @@ class ChatState {
         this.isStreaming = false;
         this.isModelLoaded = false;
         this.isServerRunning = false;
-        this.currentStream = null;
+        this.currentAbortController = null;
         this.loadingStates = {
             model: false,
             build: false,
@@ -54,6 +54,11 @@ class ChatState {
         this.isGenerating = isGenerating;
         this.updateChatInputState();
         
+        // Show/hide stop button
+        if (this.dashboard.stopGenerationBtn) {
+            this.dashboard.stopGenerationBtn.style.display = isGenerating ? 'block' : 'none';
+        }
+        
         // Pause/resume status updates during generation
         if (isGenerating) {
             this.dashboard.pauseStatusUpdates();
@@ -63,9 +68,9 @@ class ChatState {
     }
 
     // Set streaming state
-    setStreaming(isStreaming, stream = null) {
+    setStreaming(isStreaming, abortController = null) {
         this.isStreaming = isStreaming;
-        this.currentStream = stream;
+        this.currentAbortController = abortController;
         this.updateChatInputState();
     }
 
@@ -77,12 +82,17 @@ class ChatState {
 
     // Stop current stream if active
     stopCurrentStream() {
-        if (this.currentStream) {
-            this.currentStream.close();
-            this.currentStream = null;
+        if (this.currentAbortController) {
+            this.currentAbortController.abort();
+            this.currentAbortController = null;
         }
         this.setStreaming(false);
         this.setGenerating(false);
+    }
+
+    // Check if a specific operation is loading
+    isLoading(operation) {
+        return this.loadingStates[operation] || false;
     }
 
     // Get current state summary
@@ -173,7 +183,25 @@ class IkLlamaDashboard {
         this.modelQuant = document.getElementById('model-quant');
         this.loadModelBtn = document.getElementById('load-model');
         
+        // Models Page Status Elements
+        this.modelsPageStatusIcon = document.getElementById('models-page-status-icon');
+        this.modelsPageStatusText = document.getElementById('models-page-status-text');
+        this.modelsPageStatusDetails = document.getElementById('models-page-status-details');
+        this.modelsPageLoading = document.getElementById('models-page-loading');
+        this.refreshModelStatusBtn = document.getElementById('refresh-model-status');
+        this.unloadModelBtn = document.getElementById('unload-model');
+        
+        // Model Switching Elements
+        this.switchModelDropdown = document.getElementById('switch-model-dropdown');
+        this.switchModelPath = document.getElementById('switch-model-path');
+        this.browseSwitchModelBtn = document.getElementById('browse-switch-model');
+        this.switchModelBtn = document.getElementById('switch-model-btn');
+        this.refreshModelsBtn = document.getElementById('refresh-models');
+        this.currentModelInfo = document.getElementById('current-model-info');
+        this.noModelMessage = document.getElementById('no-model-message');
+        
         // Chat Section Elements
+        this.currentModelDisplay = document.getElementById('current-model-display');
         this.temperature = document.getElementById('temperature');
         this.tempValue = document.getElementById('temp-value');
         this.topP = document.getElementById('top-p');
@@ -183,7 +211,8 @@ class IkLlamaDashboard {
         this.userInput = document.getElementById('user-input');
         this.sendMessageBtn = document.getElementById('send-message');
         this.clearChatBtn = document.getElementById('clear-chat');
-        
+        this.stopGenerationBtn = document.getElementById('stop-generation');
+
         // Benchmark Section Elements (removed - not implemented)
         
         // Settings Section Elements
@@ -340,6 +369,38 @@ class IkLlamaDashboard {
             });
         }
         
+        // Models Page Status Buttons
+        if (this.refreshModelStatusBtn) {
+            this.refreshModelStatusBtn.addEventListener('click', () => {
+                this.refreshModelStatus();
+            });
+        }
+        
+        if (this.unloadModelBtn) {
+            this.unloadModelBtn.addEventListener('click', () => {
+                this.unloadModel();
+            });
+        }
+        
+        // Model Switching Event Listeners
+        if (this.switchModelDropdown) {
+            this.switchModelDropdown.addEventListener('change', () => {
+                this.updateSwitchModelPath();
+            });
+        }
+        
+        if (this.switchModelBtn) {
+            this.switchModelBtn.addEventListener('click', () => {
+                this.switchModel();
+            });
+        }
+        
+        if (this.refreshModelsBtn) {
+            this.refreshModelsBtn.addEventListener('click', () => {
+                this.refreshAvailableModels();
+            });
+        }
+        
         // Settings Section
         this.settingsTabs.forEach(tab => {
             tab.addEventListener('click', () => {
@@ -388,6 +449,18 @@ class IkLlamaDashboard {
         if (this.sendMessageBtn) {
             this.sendMessageBtn.addEventListener('click', () => {
                 this.sendMessage();
+            });
+        }
+        
+        if (this.stopGenerationBtn) {
+            this.stopGenerationBtn.addEventListener('click', () => {
+                this.stopGeneration();
+            });
+        }
+        
+        if (this.clearChatBtn) {
+            this.clearChatBtn.addEventListener('click', () => {
+                this.clearChatWithConfirmation();
             });
         }
         
@@ -683,47 +756,44 @@ class IkLlamaDashboard {
         this.showLogsModal();
     }
 
-    scanForModels() {
+    async scanForModels() {
         if (this.modelDropdown) {
             // Clear current options
             this.modelDropdown.innerHTML = '<option value="">Scanning...</option>';
             
-            // Request models from server
-            fetch('/api/discover_models')
-                .then(response => response.json())
-                .then(data => {
-                    // Clear scanning option
-                    this.modelDropdown.innerHTML = '';
-                    
-                    // Add default option
-                    const defaultOption = document.createElement('option');
-                    defaultOption.value = '';
-                    defaultOption.textContent = 'Select a model...';
-                    this.modelDropdown.appendChild(defaultOption);
-                    
-                    // Add models to dropdown
-                    if (data.models && data.models.length > 0) {
-                        data.models.forEach(model => {
-                            const option = document.createElement('option');
-                            option.value = model.path;
-                            option.textContent = model.name;
-                            option.dataset.size = model.size;
-                            option.dataset.type = model.type;
-                            option.dataset.quant = model.quantization;
-                            this.modelDropdown.appendChild(option);
-                        });
-                    } else {
-                        const noModelsOption = document.createElement('option');
-                        noModelsOption.value = '';
-                        noModelsOption.textContent = 'No models found';
-                        noModelsOption.disabled = true;
-                        this.modelDropdown.appendChild(noModelsOption);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error scanning for models:', error);
-                    this.modelDropdown.innerHTML = '<option value="">Error scanning models</option>';
-                });
+            try {
+                const data = await this.apiCall('/api/discover_models', {}, 'scanning for models');
+                
+                // Clear scanning option
+                this.modelDropdown.innerHTML = '';
+                
+                // Add default option
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = 'Select a model...';
+                this.modelDropdown.appendChild(defaultOption);
+                
+                // Add models to dropdown
+                if (data.models && data.models.length > 0) {
+                    data.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.path;
+                        option.textContent = model.name;
+                        option.dataset.size = model.size;
+                        option.dataset.type = model.type;
+                        option.dataset.quant = model.quantization;
+                        this.modelDropdown.appendChild(option);
+                    });
+                } else {
+                    const noModelsOption = document.createElement('option');
+                    noModelsOption.value = '';
+                    noModelsOption.textContent = 'No models found';
+                    noModelsOption.disabled = true;
+                    this.modelDropdown.appendChild(noModelsOption);
+                }
+            } catch (error) {
+                this.modelDropdown.innerHTML = '<option value="">Error scanning models</option>';
+            }
         }
     }
 
@@ -890,8 +960,7 @@ class IkLlamaDashboard {
     
     async checkModelLoadingStatus() {
         try {
-            const response = await fetch('/api/status');
-            const data = await response.json();
+            const data = await this.apiCall('/api/status', {}, 'checking model status');
             
             if (data.server_running && data.model_loaded) {
                 // Model actually loaded successfully despite stream issues
@@ -901,72 +970,11 @@ class IkLlamaDashboard {
                 this.finalizeModelLoadingProgress(false, 'Model loading failed');
             }
         } catch (error) {
-            console.error('Error checking model status:', error);
             this.finalizeModelLoadingProgress(false, 'Unable to verify model status');
         }
     }
 
-    showModelLoadingProgress() {
-        // Create or show progress modal similar to build progress
-        let progressModal = document.getElementById('model-loading-progress-modal');
-        if (!progressModal) {
-            progressModal = document.createElement('div');
-            progressModal.id = 'model-loading-progress-modal';
-            progressModal.className = 'modal active';
-            progressModal.innerHTML = `
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3>Loading Model</h3>
-                        <button class="close-button" onclick="document.getElementById('model-loading-progress-modal').classList.remove('active')">×</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="progress-container">
-                            <div class="progress-bar">
-                                <div class="progress-fill" id="model-loading-progress-fill"></div>
-                            </div>
-                            <div class="progress-text" id="model-loading-progress-text">Starting model loading...</div>
-                        </div>
-                        <div class="progress-log" id="model-loading-progress-log"></div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(progressModal);
-        } else {
-            progressModal.classList.add('active');
-            // Reset progress
-            const progressFill = document.getElementById('model-loading-progress-fill');
-            const progressText = document.getElementById('model-loading-progress-text');
-            const progressLog = document.getElementById('model-loading-progress-log');
-            if (progressFill) progressFill.style.width = '0%';
-            if (progressText) progressText.textContent = 'Starting model loading...';
-            if (progressLog) progressLog.innerHTML = '';
-        }
-    }
-
-    updateModelLoadingProgress(data) {
-        const progressFill = document.getElementById('model-loading-progress-fill');
-        const progressText = document.getElementById('model-loading-progress-text');
-        const progressLog = document.getElementById('model-loading-progress-log');
-        
-        if (progressFill && data.progress !== undefined) {
-            progressFill.style.width = `${data.progress}%`;
-        }
-        
-        if (progressText && data.message) {
-            progressText.textContent = data.message;
-        }
-        
-        if (progressLog && data.message) {
-            const logEntry = document.createElement('div');
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${data.message}`;
-            if (data.status === 'error') {
-                logEntry.style.color = '#ff6b6b';
-            }
-            progressLog.appendChild(logEntry);
-            // Auto-scroll to bottom
-            progressLog.scrollTop = progressLog.scrollHeight;
-        }
-    }
+    // Removed redundant progress modal functions - using generic createProgressModal helper
 
     async finalizeModelLoadingProgress(success, message) {
         const progressModal = document.getElementById('model-loading-progress-modal');
@@ -1217,46 +1225,39 @@ class IkLlamaDashboard {
         }
     }
 
-    loadLogs() {
-        fetch('/api/build-status')
-            .then(response => response.json())
-            .then(data => {
-                if (this.logsContent) {
-                    if (data.log && data.log.length > 0) {
-                        this.logsContent.textContent = data.log;
-                    } else {
-                        this.logsContent.textContent = 'No logs available';
-                    }
+    async loadLogs() {
+        try {
+            const data = await this.apiCall('/api/build-status', {}, 'loading logs');
+            
+            if (this.logsContent) {
+                if (data.log && data.log.length > 0) {
+                    this.logsContent.textContent = data.log;
+                } else {
+                    this.logsContent.textContent = 'No logs available';
                 }
-                
-                // Auto-refresh logs if build is in progress
-                if (data.status === 'In Progress') {
-                    setTimeout(() => this.loadLogs(), 2000);
-                }
-            })
-            .catch(error => {
-                console.error('Error loading logs:', error);
-                if (this.logsContent) {
-                    this.logsContent.textContent = 'Error loading logs';
-                }
-            });
+            }
+            
+            // Auto-refresh logs if build is in progress
+            if (data.status === 'In Progress') {
+                setTimeout(() => this.loadLogs(), 2000);
+            }
+        } catch (error) {
+            if (this.logsContent) {
+                this.logsContent.textContent = 'Error loading logs';
+            }
+        }
     }
 
-    clearLogs() {
-        fetch('/api/clear-logs', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
+    async clearLogs() {
+        try {
+            const data = await this.apiCall('/api/clear-logs', { method: 'POST' }, 'clearing logs');
             console.log('Logs cleared:', data);
             if (this.logsContent) {
                 this.logsContent.textContent = 'Logs cleared';
             }
-        })
-        .catch(error => {
-            console.error('Error clearing logs:', error);
+        } catch (error) {
             alert('Failed to clear logs');
-        });
+        }
     }
 
     downloadLogs() {
@@ -1290,110 +1291,131 @@ class IkLlamaDashboard {
         this.chatState.updateChatInputState();
     }
 
-    checkRepoStatus() {
+    // Consolidated API helper method
+    async apiCall(endpoint, options = {}, errorContext = 'API call') {
+        try {
+            const response = await fetch(endpoint, options);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return await response.json();
+        } catch (error) {
+            console.error(`Error ${errorContext}:`, error);
+            throw error;
+        }
+    }
+
+    // Consolidated status update method
+    updateStatusIcon(iconElement, textElement, status, text, clickHandler = null) {
+        if (!iconElement || !textElement) return;
+        
+        const statusIcons = {
+            success: '✅',
+            error: '❌',
+            warning: '⚠️',
+            loading: '🔄',
+            unknown: '❓'
+        };
+        
+        iconElement.textContent = statusIcons[status] || statusIcons.unknown;
+        textElement.textContent = text;
+        
+        if (clickHandler) {
+            iconElement.style.cursor = 'pointer';
+            textElement.style.cursor = 'pointer';
+            iconElement.onclick = clickHandler;
+            textElement.onclick = clickHandler;
+        } else {
+            iconElement.style.cursor = 'default';
+            textElement.style.cursor = 'default';
+            iconElement.onclick = null;
+            textElement.onclick = null;
+        }
+    }
+
+    async checkRepoStatus() {
         this.chatState.setLoadingState('status', true);
         
-        fetch('/api/status')
-            .then(response => response.json())
-            .then(data => {
-                // Update centralized state
-                this.chatState.setServerStatus(data.server_running);
-                this.chatState.setModelStatus(data.model_loaded && data.server_running);
+        try {
+            const data = await this.apiCall('/api/status', {}, 'checking status');
+            
+            // Update centralized state
+            this.chatState.setServerStatus(data.server_running);
+            this.chatState.setModelStatus(data.model_loaded && data.server_running);
+            
+            // Update repository status
+            this.updateStatusIcon(
+                this.repoStatusIcon, 
+                this.repoStatusText, 
+                data.repo_exists ? 'success' : 'error',
+                data.repo_exists ? 'Repository cloned' : 'Repository not found'
+            );
+            
+            // Update build status
+            const buildStatusMap = {
+                'Success': { status: 'success', text: 'Build successful' },
+                'In Progress': { status: 'loading', text: 'Build in progress' },
+                'Failed': { status: 'error', text: 'Build failed - Click to view logs', handler: () => this.showLogsModal() }
+            };
+            
+            const buildInfo = buildStatusMap[data.build_status] || { status: 'unknown', text: 'Not built' };
+            this.updateStatusIcon(
+                this.buildStatusIcon, 
+                this.buildStatusText, 
+                buildInfo.status, 
+                buildInfo.text, 
+                buildInfo.handler
+            );
+            
+            // Update model status - but don't overwrite manual states
+            if (this.modelStatusIcon && this.modelStatusText) {
+                const currentStatus = this.modelStatusText.textContent;
                 
-                // Update repository status
-                if (this.repoStatusIcon && this.repoStatusText) {
-                    if (data.repo_exists) {
-                        this.repoStatusIcon.textContent = '✅';
-                        this.repoStatusText.textContent = 'Repository cloned';
-                    } else {
-                        this.repoStatusIcon.textContent = '❌';
-                        this.repoStatusText.textContent = 'Repository not found';
-                    }
-                }
-                
-                // Update build status
-                if (this.buildStatusIcon && this.buildStatusText) {
-                    if (data.build_status === 'Success') {
-                        this.buildStatusIcon.textContent = '✅';
-                        this.buildStatusText.textContent = 'Build successful';
-                    } else if (data.build_status === 'In Progress') {
-                        this.buildStatusIcon.textContent = '🔄';
-                        this.buildStatusText.textContent = 'Build in progress';
-                    } else if (data.build_status === 'Failed') {
-                        this.buildStatusIcon.textContent = '❌';
-                        this.buildStatusText.textContent = 'Build failed - Click to view logs';
-                        // Make the build status clickable to show logs
-                        this.buildStatusIcon.style.cursor = 'pointer';
-                        this.buildStatusText.style.cursor = 'pointer';
-                        this.buildStatusIcon.onclick = () => this.showLogsModal();
-                        this.buildStatusText.onclick = () => this.showLogsModal();
-                    } else {
-                        this.buildStatusIcon.textContent = '❓';
-                        this.buildStatusText.textContent = 'Not built';
-                        // Remove click handlers for non-failed states
-                        this.buildStatusIcon.style.cursor = 'default';
-                        this.buildStatusText.style.cursor = 'default';
-                        this.buildStatusIcon.onclick = null;
-                        this.buildStatusText.onclick = null;
-                    }
-                }
-                
-                // Update model status - but don't overwrite manual states
-                if (this.modelStatusIcon && this.modelStatusText) {
-                    const currentStatus = this.modelStatusText.textContent;
-                    
-                    // Don't overwrite loading states or verification failures
-                    if (currentStatus === 'Loading model...' || 
-                        currentStatus === 'Verification failed' ||
-                        currentStatus === 'Model loading failed') {
-                        console.log('Preserving current status:', currentStatus);
-                        return; // Don't update during these states
-                    }
-                    
-                    // Only update if the API status differs from current display
+                // Don't overwrite loading states or verification failures
+                const preservedStates = ['Loading model...', 'Verification failed', 'Model loading failed'];
+                if (!preservedStates.includes(currentStatus)) {
                     if (data.model_loaded && data.server_running) {
                         const newStatus = data.model_name || 'Model loaded';
                         if (currentStatus !== newStatus) {
-                            this.modelStatusIcon.textContent = '✅';
-                            this.modelStatusText.textContent = newStatus;
-                            console.log('Updated status to:', newStatus);
+                            this.updateStatusIcon(this.modelStatusIcon, this.modelStatusText, 'success', newStatus);
                         }
                     } else {
                         if (currentStatus !== 'No model loaded') {
-                            this.modelStatusIcon.textContent = '❓';
-                            this.modelStatusText.textContent = 'No model loaded';
-                            console.log('Updated status to: No model loaded');
+                            this.updateStatusIcon(this.modelStatusIcon, this.modelStatusText, 'unknown', 'No model loaded');
                         }
                     }
                 }
-                
-                // Update server status
-                if (this.statusDot && this.statusText) {
-                    if (data.server_running) {
-                        this.statusDot.classList.add('online');
-                        this.statusText.textContent = 'Online';
-                    } else {
-                        this.statusDot.classList.remove('online');
-                        this.statusText.textContent = 'Offline';
-                    }
+            }
+            
+            // Update models page status display
+            this.updateModelsPageStatus(data);
+            
+            // Update server status
+            if (this.statusDot && this.statusText) {
+                if (data.server_running) {
+                    this.statusDot.classList.add('online');
+                    this.statusText.textContent = 'Online';
+                } else {
+                    this.statusDot.classList.remove('online');
+                    this.statusText.textContent = 'Offline';
                 }
-            })
-            .catch(error => {
-                console.error('Error checking status:', error);
-                
-                // Update centralized state on error
-                this.chatState.setServerStatus(false);
-                this.chatState.setModelStatus(false);
-                
-                // Update status to show error
-                if (this.statusDot && this.statusText) {
-                    this.statusDot.classList.add('error');
-                    this.statusText.textContent = 'Error';
-                }
-            })
-            .finally(() => {
-                this.chatState.setLoadingState('status', false);
-            });
+            }
+        } catch (error) {
+            // Update centralized state on error
+            this.chatState.setServerStatus(false);
+            this.chatState.setModelStatus(false);
+            
+            // Update status to show error
+            if (this.statusDot && this.statusText) {
+                this.statusDot.classList.add('error');
+                this.statusText.textContent = 'Error';
+            }
+            
+            // Update models page status to show error
+            this.updateModelsPageStatus(null, 'Error checking status');
+        } finally {
+            this.chatState.setLoadingState('status', false);
+        }
     }
 
     startStatusUpdates() {
@@ -1566,8 +1588,12 @@ class IkLlamaDashboard {
         let assistantMessage = null;
         let fullResponse = '';
         let hasStartedReceiving = false;
+        let abortController = new AbortController();
 
         try {
+            // Show typing indicator while waiting for response
+            this.showTypingIndicator();
+
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {
@@ -1577,23 +1603,31 @@ class IkLlamaDashboard {
                     message: message,
                     config: config,
                     history: this.conversationHistory
-                })
+                }),
+                signal: abortController.signal
             });
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            // Create assistant message element
+            // Hide typing indicator and create assistant message element
+            this.hideTypingIndicator();
             assistantMessage = this.addMessage('assistant', '');
             
-            // Set streaming state
-            this.chatState.setStreaming(true, response.body);
+            // Set streaming state with abort controller
+            this.chatState.setStreaming(true, abortController);
             
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
 
             while (true) {
+                // Check if generation was stopped
+                if (abortController.signal.aborted) {
+                    reader.cancel();
+                    break;
+                }
+
                 const { done, value } = await reader.read();
                 
                 if (done) break;
@@ -1632,51 +1666,133 @@ class IkLlamaDashboard {
             }
 
             // If we never received any tokens, show a helpful message
-            if (!hasStartedReceiving) {
+            if (!hasStartedReceiving && !abortController.signal.aborted) {
                 assistantMessage.textContent = 'No response received. Please try again.';
                 assistantMessage.className = 'message system';
                 return;
             }
 
-            // Clean response content and save to conversation history
-            const cleanedResponse = this.cleanResponseContent(fullResponse);
-            this.conversationHistory.push({ role: 'assistant', content: cleanedResponse });
-            this.trimConversationHistory();
-            this.saveChatHistory();
+            // Only save to history if not aborted
+            if (!abortController.signal.aborted) {
+                // Clean response content and save to conversation history
+                const cleanedResponse = this.cleanResponseContent(fullResponse);
+                this.conversationHistory.push({ role: 'assistant', content: cleanedResponse });
+                this.trimConversationHistory();
+                this.saveChatHistory();
+            }
 
         } catch (error) {
             console.error('Streaming error:', error);
             
-            // Remove user message from history if streaming failed
-            if (this.conversationHistory.length > 0 && 
-                this.conversationHistory[this.conversationHistory.length - 1].role === 'user') {
-                this.conversationHistory.pop();
-            }
+            // Hide typing indicator on error
+            this.hideTypingIndicator();
             
-            if (assistantMessage) {
-                assistantMessage.textContent = `Error: ${error.message}`;
-                assistantMessage.className = 'message system';
-            } else {
-                this.addMessage('system', `Error: ${error.message}`);
+            // Only handle error if not aborted by user
+            if (!abortController.signal.aborted) {
+                // Remove user message from history if streaming failed
+                if (this.conversationHistory.length > 0 && 
+                    this.conversationHistory[this.conversationHistory.length - 1].role === 'user') {
+                    this.conversationHistory.pop();
+                }
+                
+                if (assistantMessage) {
+                    assistantMessage.textContent = `Error: ${error.message}`;
+                    assistantMessage.className = 'message system';
+                } else {
+                    this.addMessage('system', `Error: ${error.message}`);
+                }
             }
         } finally {
-            // Reset states
+            // Reset states and hide typing indicator
+            this.hideTypingIndicator();
             this.chatState.setStreaming(false);
             this.chatState.setGenerating(false);
         }
     }
     
-    addMessage(type, content) {
+    addMessage(type, content, timestamp = null) {
         if (!this.chatMessages) return null;
         
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}`;
         messageDiv.textContent = content;
         
+        // Add timestamp if provided or create one
+        if (timestamp || type !== 'system') {
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'message-timestamp';
+            const time = timestamp || new Date();
+            timestampDiv.textContent = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            messageDiv.appendChild(timestampDiv);
+        }
+        
         this.chatMessages.appendChild(messageDiv);
         this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
         
         return messageDiv;
+    }
+    
+    // Show typing indicator
+    showTypingIndicator() {
+        // Remove any existing typing indicator
+        this.hideTypingIndicator();
+        
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'typing-indicator';
+        typingDiv.id = 'typing-indicator';
+        
+        const typingText = document.createElement('span');
+        typingText.textContent = 'AI is thinking';
+        
+        const dotsContainer = document.createElement('div');
+        dotsContainer.className = 'typing-dots';
+        
+        for (let i = 0; i < 3; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'typing-dot';
+            dotsContainer.appendChild(dot);
+        }
+        
+        typingDiv.appendChild(typingText);
+        typingDiv.appendChild(dotsContainer);
+        
+        this.chatMessages.appendChild(typingDiv);
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    }
+    
+    // Hide typing indicator
+    hideTypingIndicator() {
+        const existingIndicator = document.getElementById('typing-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
+    }
+    
+    // Stop generation functionality
+    stopGeneration() {
+        if (this.chatState.isGenerating || this.chatState.isStreaming) {
+            this.chatState.stopCurrentStream();
+            this.hideTypingIndicator();
+            this.addMessage('system', 'Generation stopped by user.');
+            
+            // Remove the last user message from history if generation was stopped
+            if (this.conversationHistory.length > 0 && 
+                this.conversationHistory[this.conversationHistory.length - 1].role === 'user') {
+                this.conversationHistory.pop();
+            }
+        }
+    }
+    
+    // Clear chat with confirmation
+    clearChatWithConfirmation() {
+        if (this.conversationHistory.length === 0) {
+            this.addMessage('system', 'Chat is already empty.');
+            return;
+        }
+        
+        if (confirm('Are you sure you want to clear the entire conversation? This action cannot be undone.')) {
+            this.clearConversation();
+        }
     }
     
     // Conversation history helpers
@@ -1794,6 +1910,284 @@ class IkLlamaDashboard {
             this.chatMessages.innerHTML = '';
         }
         this.addMessage('system', 'Chat history cleared.');
+    }
+    
+    // Models Page Status Functions
+    updateModelsPageStatus(data, errorMessage = null) {
+        if (!this.modelsPageStatusIcon || !this.modelsPageStatusText || !this.modelsPageStatusDetails) {
+            return;
+        }
+        
+        // Hide loading indicator
+        if (this.modelsPageLoading) {
+            this.modelsPageLoading.style.display = 'none';
+        }
+        
+        if (errorMessage) {
+            // Show error state
+            this.modelsPageStatusIcon.textContent = '❌';
+            this.modelsPageStatusIcon.className = 'status-icon error';
+            this.modelsPageStatusText.textContent = 'Error';
+            this.modelsPageStatusDetails.textContent = errorMessage;
+            return;
+        }
+        
+        if (!data) {
+            // Show offline state
+            this.modelsPageStatusIcon.textContent = '⚫';
+            this.modelsPageStatusIcon.className = 'status-icon offline';
+            this.modelsPageStatusText.textContent = 'Server Offline';
+            this.modelsPageStatusDetails.textContent = 'Unable to connect to server';
+            return;
+        }
+        
+        // Update based on server and model status
+        if (data.model_loaded && data.server_running) {
+            this.modelsPageStatusIcon.textContent = '✅';
+            this.modelsPageStatusIcon.className = 'status-icon success';
+            this.modelsPageStatusText.textContent = 'Model Loaded';
+            this.modelsPageStatusDetails.textContent = data.model_name || 'Model is ready for inference';
+        } else if (data.server_running) {
+            this.modelsPageStatusIcon.textContent = '⚠️';
+            this.modelsPageStatusIcon.className = 'status-icon warning';
+            this.modelsPageStatusText.textContent = 'Server Running';
+            this.modelsPageStatusDetails.textContent = 'No model loaded - Select and load a model';
+        } else {
+            this.modelsPageStatusIcon.textContent = '❌';
+            this.modelsPageStatusIcon.className = 'status-icon error';
+            this.modelsPageStatusText.textContent = 'Server Offline';
+            this.modelsPageStatusDetails.textContent = 'Server is not running';
+        }
+    }
+    
+    refreshModelStatus() {
+        if (this.modelsPageLoading) {
+            this.modelsPageLoading.style.display = 'flex';
+        }
+        
+        // Force a status check
+        this.checkRepoStatus();
+    }
+    
+    async unloadModel() {
+        if (!confirm('Are you sure you want to unload the current model?')) {
+            return;
+        }
+        
+        try {
+            // Show loading state
+            if (this.modelsPageLoading) {
+                this.modelsPageLoading.style.display = 'flex';
+            }
+            
+            const response = await fetch('/api/unload_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                // Update status immediately
+                this.modelsPageStatusIcon.textContent = '⚠️';
+                this.modelsPageStatusIcon.className = 'status-icon warning';
+                this.modelsPageStatusText.textContent = 'Model Unloaded';
+                this.modelsPageStatusDetails.textContent = 'Model has been unloaded successfully';
+                
+                // Also update the welcome page status
+                if (this.modelStatusIcon && this.modelStatusText) {
+                    this.modelStatusIcon.textContent = '❓';
+                    this.modelStatusText.textContent = 'No model loaded';
+                }
+                
+                // Refresh status after a short delay
+                setTimeout(() => {
+                    this.refreshModelStatus();
+                }, 1000);
+            } else {
+                throw new Error('Failed to unload model');
+            }
+        } catch (error) {
+            console.error('Error unloading model:', error);
+            this.updateModelsPageStatus(null, 'Failed to unload model');
+        } finally {
+            if (this.modelsPageLoading) {
+                this.modelsPageLoading.style.display = 'none';
+            }
+        }
+    }
+    
+    // Model Switching Functions
+    updateSwitchModelPath() {
+        if (this.switchModelDropdown && this.switchModelPath) {
+            const selectedModel = this.switchModelDropdown.value;
+            if (selectedModel) {
+                this.switchModelPath.value = selectedModel;
+            }
+        }
+    }
+    
+    async refreshAvailableModels() {
+        try {
+            const response = await fetch('/api/discover_models');
+            const data = await response.json();
+            
+            if (data.success && this.switchModelDropdown) {
+                // Clear existing options
+                this.switchModelDropdown.innerHTML = '<option value="">Select a model to switch to...</option>';
+                
+                // Add discovered models
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.path;
+                    option.textContent = model.name;
+                    this.switchModelDropdown.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error refreshing available models:', error);
+        }
+    }
+    
+    async switchModel() {
+        const modelPath = this.switchModelPath?.value?.trim();
+        
+        if (!modelPath) {
+            alert('Please select or enter a model path');
+            return;
+        }
+        
+        // Get current configuration
+        const config = this.getModelConfig();
+        
+        try {
+            // First, prepare the switch
+            const response = await fetch('/api/switch_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model_path: modelPath,
+                    config: config
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to prepare model switch');
+            }
+            
+            // Start the streaming switch process
+            this.startModelSwitchStream();
+            
+        } catch (error) {
+            console.error('Error switching model:', error);
+            alert('Failed to switch model: ' + error.message);
+        }
+    }
+    
+    startModelSwitchStream() {
+        // Show loading state
+        if (this.modelsPageLoading) {
+            this.modelsPageLoading.style.display = 'flex';
+        }
+        
+        // Update status to show switching
+        this.updateModelsPageStatus(null, 'Switching model...');
+        
+        const eventSource = new EventSource('/api/switch_model_stream');
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.status === 'switching') {
+                    // Update progress
+                    this.updateModelsPageStatus(null, data.message);
+                } else if (data.status === 'ready') {
+                    // Model switch completed successfully
+                    eventSource.close();
+                    
+                    // Hide loading
+                    if (this.modelsPageLoading) {
+                        this.modelsPageLoading.style.display = 'none';
+                    }
+                    
+                    // Update current model display
+                    this.updateCurrentModelDisplay(data.model_name || 'Model loaded');
+                    
+                    // Refresh status
+                    setTimeout(() => {
+                        this.refreshModelStatus();
+                    }, 1000);
+                    
+                } else if (data.status === 'error') {
+                    // Handle error
+                    eventSource.close();
+                    
+                    if (this.modelsPageLoading) {
+                        this.modelsPageLoading.style.display = 'none';
+                    }
+                    
+                    this.updateModelsPageStatus(null, data.message || 'Model switch failed');
+                }
+                
+            } catch (error) {
+                console.error('Error parsing switch stream data:', error);
+            }
+        };
+        
+        eventSource.onerror = (error) => {
+            console.error('Model switch stream error:', error);
+            eventSource.close();
+            
+            if (this.modelsPageLoading) {
+                this.modelsPageLoading.style.display = 'none';
+            }
+            
+            this.updateModelsPageStatus(null, 'Model switch failed');
+        };
+    }
+    
+    updateCurrentModelDisplay(modelName) {
+        // Update the current model info section
+        if (this.currentModelInfo && this.noModelMessage) {
+            if (modelName && modelName !== 'No model loaded') {
+                this.noModelMessage.style.display = 'none';
+                this.currentModelInfo.innerHTML = `
+                    <div class="model-item">
+                        <div class="model-info">
+                            <div class="model-name">${modelName}</div>
+                            <div class="model-status ready">Ready for inference</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                this.noModelMessage.style.display = 'block';
+                this.currentModelInfo.innerHTML = '';
+            }
+        }
+        
+        // Update the chat section display
+        if (this.currentModelDisplay) {
+            const modelNameSpan = this.currentModelDisplay.querySelector('.model-name');
+            if (modelNameSpan) {
+                modelNameSpan.textContent = modelName || 'No model loaded';
+            }
+        }
+        
+        // Enable/disable chat input based on model status
+        if (this.userInput && this.sendMessageBtn) {
+            const hasModel = modelName && modelName !== 'No model loaded';
+            this.userInput.disabled = !hasModel;
+            this.sendMessageBtn.disabled = !hasModel;
+            
+            if (hasModel) {
+                this.userInput.placeholder = 'Type your message...';
+            } else {
+                this.userInput.placeholder = 'Load a model to start chatting...';
+            }
+        }
     }
 }
 

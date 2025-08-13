@@ -232,6 +232,32 @@
             <!-- Models Section -->
             <section class="content-section" id="models-section">
                 <div class="models-container">
+                    <!-- Current Model Status Card -->
+                    <div class="section-card" id="current-model-card">
+                        <div class="card-header">
+                            <h3>Current Model Status</h3>
+                            <div class="card-actions">
+                                <button class="icon-button" id="refresh-model-status" title="Refresh status">🔄</button>
+                                <button class="icon-button" id="unload-model" title="Unload current model" style="display: none;">⏹️</button>
+                            </div>
+                        </div>
+                        <div class="card-content">
+                            <div class="model-status-display">
+                                <div class="status-indicator">
+                                    <div class="status-icon" id="models-page-status-icon">❓</div>
+                                    <div class="status-info">
+                                        <div class="status-text" id="models-page-status-text">No model loaded</div>
+                                        <div class="status-details" id="models-page-status-details">Select and load a model to begin</div>
+                                    </div>
+                                </div>
+                                <div class="loading-indicator" id="models-page-loading" style="display: none;">
+                                    <div class="spinner"></div>
+                                    <span>Loading model...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="section-card">
                         <div class="card-header">
                             <h3>Model Selection</h3>
@@ -287,6 +313,47 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Model Switching Card -->
+                    <div class="section-card" id="model-switch-card">
+                        <div class="card-header">
+                            <h3>Model Switching</h3>
+                            <div class="card-actions">
+                                <button class="icon-button" id="refresh-models" title="Refresh available models">🔄</button>
+                            </div>
+                        </div>
+                        <div class="card-content">
+                            <div class="model-switch-controls">
+                                <div class="form-group">
+                                    <label for="switch-model-dropdown">Switch to Model:</label>
+                                    <div class="select-wrapper">
+                                        <select id="switch-model-dropdown">
+                                            <option value="">Select a model to switch to...</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="switch-model-path">Custom Model Path:</label>
+                                    <div class="input-with-button">
+                                        <input type="text" id="switch-model-path" placeholder="Enter path to model file...">
+                                        <button class="icon-button" id="browse-switch-model">📁</button>
+                                    </div>
+                                </div>
+                                <div class="model-actions">
+                                    <button class="primary-button" id="switch-model-btn">Switch Model</button>
+                                </div>
+                            </div>
+                            
+                            <div class="current-model-section">
+                                <h4>Current Model</h4>
+                                <div class="current-model-info" id="current-model-info">
+                                    <div class="no-model-message" id="no-model-message">
+                                        No model currently loaded
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -296,6 +363,12 @@
                     <div class="chat-sidebar">
                         <div class="chat-config">
                             <h3>Chat Settings</h3>
+                            <div class="form-group">
+                                <label for="current-model-display">Current Model:</label>
+                                <div class="current-model-display" id="current-model-display">
+                                    <span class="model-name">No model loaded</span>
+                                </div>
+                            </div>
                             <div class="form-group">
                                 <label for="temperature">Temperature:</label>
                                 <div class="range-input">
@@ -330,6 +403,7 @@
                             <textarea id="user-input" placeholder="Type your message..." disabled></textarea>
                             <div class="chat-buttons">
                                 <button class="secondary-button" id="clear-chat" title="Clear conversation">🗑️ Clear</button>
+                                <button class="stop-button" id="stop-generation" title="Stop generation" style="display: none;">⏹️ Stop</button>
                                 <button class="send-button" id="send-message" disabled>Send</button>
                             </div>
                         </div>

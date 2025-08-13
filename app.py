@@ -53,13 +53,8 @@ def serve_index():
 
 
 
-# Global instance
+# Global instances
 llama_server = LlamaServerManager()
-
-@app.route('/')
-def index():
-    """Serve the main HTML page"""
-    return send_from_directory('.', 'index.html')
 
 
 
@@ -655,6 +650,96 @@ def load_model():
             'success': False,
             'error': str(e)
         }), 500
+
+@app.route('/api/switch_model', methods=['POST'])
+def switch_model():
+    """Switch to a different model by stopping current server and starting with new model"""
+    try:
+        data = request.json
+        model_path = data.get('model_path')
+        config = data.get('config', {})
+        
+        if not model_path:
+            return jsonify({
+                'success': False,
+                'error': 'No model path provided'
+            }), 400
+        
+        # Store config in session for the stream endpoint
+        session['model_config'] = config
+        session['model_path'] = model_path
+        
+        return jsonify({
+            'success': True,
+            'message': 'Model switch configuration saved, ready for streaming'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/switch_model_stream')
+def switch_model_stream():
+    """Stream model switching progress"""
+    # Capture session data before entering the generator function
+    model_path = session.get('model_path')
+    config = session.get('model_config', {})
+    
+    def generate():
+        try:
+            if not model_path:
+                yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': 'No model path provided'})}\n\n"
+                return
+            
+            # Add model path to config
+            config['model'] = model_path
+            
+            # First, stop the current server if running
+            if llama_server.is_server_running:
+                yield f"data: {json.dumps({'status': 'switching', 'progress': 10, 'message': 'Stopping current model server...'})}\n\n"
+                llama_server.stop_server()
+                yield f"data: {json.dumps({'status': 'switching', 'progress': 20, 'message': 'Current server stopped'})}\n\n"
+            
+            # Now start the new model server with streaming
+            yield f"data: {json.dumps({'status': 'switching', 'progress': 25, 'message': 'Starting new model server...'})}\n\n"
+            
+            # Use the existing streaming method but adjust progress values
+            for chunk in llama_server.start_server_stream(config):
+                # Parse the chunk to adjust progress for switching context
+                try:
+                    if chunk.startswith('data: '):
+                        chunk_data = json.loads(chunk[6:])
+                        if 'progress' in chunk_data:
+                            # Adjust progress to account for the switching phase (25% already done)
+                            original_progress = chunk_data['progress']
+                            adjusted_progress = 25 + int(original_progress * 0.75)  # Scale remaining 75%
+                            chunk_data['progress'] = adjusted_progress
+                            
+                            # Update status message for switching context
+                            if chunk_data.get('status') == 'preparing':
+                                chunk_data['status'] = 'switching'
+                                chunk_data['message'] = f"Switching model: {chunk_data['message']}"
+                            elif chunk_data.get('status') == 'starting':
+                                chunk_data['status'] = 'switching'
+                                chunk_data['message'] = f"Switching model: {chunk_data['message']}"
+                            elif chunk_data.get('status') == 'loading':
+                                chunk_data['status'] = 'switching'
+                                chunk_data['message'] = f"Loading new model: {chunk_data['message']}"
+                        
+                        yield f"data: {json.dumps(chunk_data)}\n\n"
+                    else:
+                        yield chunk
+                except (json.JSONDecodeError, KeyError):
+                    # If we can't parse the chunk, just pass it through
+                    yield chunk
+                
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Model switch error: {str(e)}'})}\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream')
+
+
 
 @app.route('/api/unload_model', methods=['POST'])
 def unload_model():

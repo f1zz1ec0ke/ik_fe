@@ -372,7 +372,7 @@ class LlamaServerManager:
                     
                     # Periodic health check (only if no recent output)
                     current_time = time.time()
-                    if current_time - last_health_check > 5 and current_time - last_progress_update > 3:  # Check every 5 seconds, but only if no recent output
+                    if current_time - last_health_check > 10 and current_time - last_progress_update > 5:  # Increased from 5s to 10s, and from 3s to 5s
                         last_health_check = current_time
                         # Use simplified health check for periodic checks during startup
                         if self.health_check(test_inference=False):
