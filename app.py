@@ -62,7 +62,7 @@ llama_server = LlamaServerManager()
 def clone_repository():
     try:
         # Define the repository URL and target directory - create ik_llama.cpp in current directory
-        repo_url = "https://github.com/ggerganov/llama.cpp.git"
+        repo_url = "https://github.com/ikawrakow/ik_llama.cpp.git"
         target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
         
         # Check if directory already exists
@@ -118,10 +118,10 @@ def build_stream():
                     shutil.rmtree(repo_dir)
                 
                 # Clone the repository with progress
-                yield f"data: {json.dumps({'status': 'cloning', 'progress': 15, 'message': 'Cloning llama.cpp repository...'})}\n\n"
+                yield f"data: {json.dumps({'status': 'cloning', 'progress': 15, 'message': 'Cloning ik_llama.cpp repository...'})}\n\n"
                 
                 clone_process = subprocess.Popen(
-                    ["git", "clone", "--progress", "https://github.com/ggerganov/llama.cpp.git", repo_dir],
+                    ["git", "clone", "--progress", "https://github.com/ikawrakow/ik_llama.cpp.git", repo_dir],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -144,6 +144,33 @@ def build_stream():
                     return
                 
                 yield f"data: {json.dumps({'status': 'cloning', 'progress': 40, 'message': 'Repository cloned successfully'})}\n\n"
+                
+                # Record the commit hash after cloning
+                try:
+                    os.chdir(repo_dir)
+                    commit_result = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if commit_result.returncode == 0:
+                        commit_hash = commit_result.stdout.strip()
+                        # Save commit info to a tracking file
+                        tracking_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_info.json")
+                        build_info = {
+                            "last_build_commit": commit_hash,
+                            "last_build_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "build_type": "fresh_clone"
+                        }
+                        with open(tracking_file, 'w') as f:
+                            json.dump(build_info, f, indent=2)
+                        yield f"data: {json.dumps({'status': 'cloning', 'progress': 42, 'message': f'Recorded commit: {commit_hash[:8]}'})}\n\n"
+
+                    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+                except Exception as e:
+                    logger.debug(f"Could not record commit hash: {e}")
+                    yield f"data: {json.dumps({'status': 'cloning', 'progress': 42, 'message': 'Could not record commit info'})}\n\n"
             
             # Check if directory exists
             if not os.path.exists(repo_dir):
@@ -446,7 +473,8 @@ def run_build(repo_dir, build_cmd):
         if not os.path.exists(repo_dir):
             with open(build_log_path, 'a') as f:
                 f.write(f"ERROR: Repository directory does not exist: {repo_dir}\n")
-                f.write("Please clone the llama.cpp repository first.\n")
+                f.write("Please clone the ik_llama.cpp repository first.\n")
+
                 f.write("Build failed - Repository not found\n")
             return
         
@@ -620,8 +648,8 @@ def load_model_stream():
             # Add model path to config
             config['model'] = model_path
             
-            # Use the streaming method
-            for chunk in llama_server.start_server_stream(config):
+            # Use the unified method with streaming enabled
+            for chunk in llama_server.start_server(config, stream_progress=True):
                 yield chunk
                 
         except Exception as e:
@@ -655,7 +683,7 @@ def load_model():
 
 @app.route('/api/unload_model', methods=['POST'])
 def unload_model():
-    """Stop server and unload model"""
+    """Stop server and unload model with enhanced validation and feedback"""
     try:
         data = request.json or {}
         force = data.get('force', False)
@@ -671,27 +699,79 @@ def unload_model():
                 'error': None
             })
         
+        # Check server health before shutdown
+        server_responsive = True
+        try:
+            response = requests.get(f"{llama_server.server_url}/health", timeout=2)
+            server_responsive = response.status_code == 200
+        except:
+            server_responsive = False
+            logger.warning("Server not responding to health check before unload")
+        
+        # Check for active requests if not forcing
+        active_requests = False
+        if not force and server_responsive:
+            try:
+                response = requests.get(f"{llama_server.server_url}/slots", timeout=2)
+                if response.status_code == 200:
+                    slots = response.json()
+                    active_requests = any(s.get('state') == 'processing' for s in slots)
+                    if active_requests:
+                        logger.info("Active requests detected during unload attempt")
+            except:
+                pass
+        
+        # Log the unload attempt with context
+        if force:
+            logger.info(f"Force unloading model (server_responsive: {server_responsive})...")
+        else:
+            logger.info(f"Unloading model (server_responsive: {server_responsive}, active_requests: {active_requests})...")
+        
         # Attempt to stop the server
         success = llama_server.stop_server(force=force)
         
         if success:
-            message = f"Model {'force ' if force else ''}unloaded successfully"
+            # Enhanced success message with context
+            if force:
+                message = "Model force unloaded successfully"
+            elif active_requests:
+                message = "Model unloaded successfully (had active requests)"
+            elif not server_responsive:
+                message = "Model unloaded successfully (server was unresponsive)"
+            else:
+                message = "Model unloaded successfully"
+            
             logger.info(message)
             # Clear the model status cache
             global _model_status_cache, _model_status_last_update
             _model_status_cache = None
             _model_status_last_update = 0
             
+            # Clear session data to prevent stale model configuration
+            session.pop('model_path', None)
+            session.pop('model_config', None)
+            logger.debug("Cleared session model data after successful unload")
+            
             return jsonify({
                 'success': True,
                 'message': message,
-                'error': None
+                'error': None,
+                'context': {
+                    'was_forced': force,
+                    'had_active_requests': active_requests,
+                    'server_was_responsive': server_responsive
+                }
             })
         else:
-            logger.error("Failed to stop server during unload")
+            error_msg = "Failed to force unload model" if force else "Failed to unload model"
+            logger.error(error_msg)
             return jsonify({
                 'success': False,
-                'error': 'Failed to stop server process'
+                'error': error_msg,
+                'context': {
+                    'was_forced': force,
+                    'server_was_responsive': server_responsive
+                }
             }), 500
             
     except Exception as e:
@@ -851,14 +931,178 @@ def chat():
 
 @app.route('/api/version', methods=['GET'])
 def get_version():
-    """Get llama-server version information"""
+    """Get comprehensive version information including current and latest versions"""
     try:
+        # Get current version from llama-server
         success, version_info = llama_server.get_version()
+        
+        # Get current git commit if repository exists
+        current_commit = None
+        current_commit_short = None
+        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
+        build_info_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_info.json")
+        
+        # First try to read from build_info.json
+        if os.path.exists(build_info_file):
+            try:
+                with open(build_info_file, 'r') as f:
+                    build_info = json.load(f)
+                    current_commit = build_info.get('last_build_commit')
+                    if current_commit:
+                        current_commit_short = current_commit[:8]
+            except Exception as e:
+                logger.debug(f"Could not read build info: {e}")
+        
+        # If no build info or repo exists, get current commit and update build info
+        if not current_commit and os.path.exists(os.path.join(repo_dir, ".git")):
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=repo_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    current_commit = result.stdout.strip()
+                    current_commit_short = current_commit[:8]
+                    
+                    # Update build_info.json with current commit
+                    build_info = {
+                        "last_build_commit": current_commit,
+                        "last_build_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "build_type": "existing_repo"
+                    }
+                    with open(build_info_file, 'w') as f:
+                        json.dump(build_info, f, indent=2)
+            except Exception as e:
+                logger.debug(f"Could not get current commit: {e}")
+        
+        # Get latest commit from GitHub API
+        latest_commit = None
+        latest_commit_short = None
+        update_available = False
+        
+        try:
+            import requests
+            response = requests.get(
+                "https://api.github.com/repos/ikawrakow/ik_llama.cpp/commits/main",
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                latest_commit = data['sha']
+                latest_commit_short = latest_commit[:8]
+                
+                # Check if update is available
+                if current_commit and latest_commit:
+                    update_available = current_commit != latest_commit
+        except Exception as e:
+            logger.debug(f"Could not fetch latest version: {e}")
+        
         return jsonify({
             'success': success,
-            'version': version_info if success else None,
+            'version_info': version_info if success else None,
+            'current_commit': current_commit,
+            'current_commit_short': current_commit_short,
+            'latest_commit': latest_commit,
+            'latest_commit_short': latest_commit_short,
+            'update_available': update_available,
+            'repo_exists': os.path.exists(repo_dir),
             'error': None if success else version_info
         })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/update-repo', methods=['POST'])
+def update_repo():
+    """Update the repository to the latest version"""
+    try:
+        repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ik_llama.cpp")
+        
+        if not os.path.exists(repo_dir):
+            return jsonify({
+                'success': False,
+                'error': 'Repository not found. Please clone it first.'
+            }), 400
+        
+        # Check if it's a git repository
+        if not os.path.exists(os.path.join(repo_dir, ".git")):
+            return jsonify({
+                'success': False,
+                'error': 'Directory exists but is not a git repository.'
+            }), 400
+        
+        # Fetch latest changes
+        fetch_result = subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if fetch_result.returncode != 0:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to fetch updates: {fetch_result.stderr}'
+            }), 500
+        
+        # Reset to latest origin/main
+        reset_result = subprocess.run(
+            ["git", "reset", "--hard", "origin/main"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if reset_result.returncode != 0:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to reset to latest version: {reset_result.stderr}'
+            }), 500
+        
+        # Get the new commit hash
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        new_commit_full = commit_result.stdout.strip() if commit_result.returncode == 0 else None
+        new_commit = new_commit_full[:8] if new_commit_full else "unknown"
+        
+        # Update build_info.json with new commit
+        if new_commit_full:
+            try:
+                build_info_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_info.json")
+                build_info = {
+                    "last_build_commit": new_commit_full,
+                    "last_build_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "build_type": "repository_update"
+                }
+                with open(build_info_file, 'w') as f:
+                    json.dump(build_info, f, indent=2)
+            except Exception as e:
+                logger.debug(f"Could not update build info: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Repository updated successfully to commit {new_commit}',
+            'new_commit': new_commit
+        })
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Update operation timed out'
+        }), 500
     except Exception as e:
         return jsonify({
             'success': False,

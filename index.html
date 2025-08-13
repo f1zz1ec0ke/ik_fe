@@ -174,8 +174,34 @@
                         <div class="step" id="step-3">
                             <div class="step-number">3</div>
                             <div class="step-content">
-                                <h3>Start Build</h3>
-                                <p>Ready to build ik_llama.cpp with the selected options.</p>
+                                <h3>Version & Build Management</h3>
+                                <p>Check version status and manage your ik_llama.cpp installation.</p>
+                                
+                                <!-- Version Information Card -->
+                                <div class="version-info-card">
+                                    <div class="version-header">
+                                        <h4>🔍 Version Information</h4>
+                                        <button class="icon-button" id="refresh-version" title="Refresh version info">🔄</button>
+                                    </div>
+                                    <div class="version-content">
+                                        <div class="version-row">
+                                            <span class="version-label">Current Version:</span>
+                                            <span class="version-value" id="current-version">Checking...</span>
+                                        </div>
+                                        <div class="version-row">
+                                            <span class="version-label">Latest Version:</span>
+                                            <span class="version-value" id="latest-version">Checking...</span>
+                                        </div>
+                                        <div class="version-row">
+                                            <span class="version-label">Status:</span>
+                                            <span class="version-status" id="version-status">Checking...</span>
+                                        </div>
+                                    </div>
+                                    <div class="version-actions" id="version-actions" style="display: none;">
+                                        <button class="secondary-button" id="update-repo">📥 Update Repository</button>
+                                        <button class="primary-button" id="rebuild-after-update">🔨 Update & Rebuild</button>
+                                    </div>
+                                </div>
                                 
                                 <div class="build-summary">
                                     <div class="summary-item">

@@ -159,8 +159,15 @@ class IkLlamaDashboard {
         this.nextStep2Btn = document.getElementById('next-step-2');
         this.prevStep3Btn = document.getElementById('prev-step-3');
         this.startBuildBtn = document.getElementById('start-build');
-        // Version indicator (removed - not essential)
-        this.versionStatus = document.getElementById('version-status');
+        
+        // Version Management Elements
+        this.refreshVersionBtn = document.getElementById('refresh-version');
+        this.currentVersionEl = document.getElementById('current-version');
+        this.latestVersionEl = document.getElementById('latest-version');
+        this.versionStatusEl = document.getElementById('version-status');
+        this.versionActionsEl = document.getElementById('version-actions');
+        this.updateRepoBtn = document.getElementById('update-repo');
+        this.rebuildAfterUpdateBtn = document.getElementById('rebuild-after-update');
         this.repoOptions = document.getElementsByName('repo-option');
         this.cudaSupport = document.getElementById('cuda-support');
         this.openclSupport = document.getElementById('opencl-support');
@@ -303,6 +310,7 @@ class IkLlamaDashboard {
             this.nextStep2Btn.addEventListener('click', () => {
                 this.updateBuildSummary();
                 this.goToStep(3);
+                this.checkVersionInfo(); // Check version when entering step 3
             });
         }
         
@@ -315,6 +323,25 @@ class IkLlamaDashboard {
         if (this.startBuildBtn) {
             this.startBuildBtn.addEventListener('click', () => {
                 this.startBuild();
+            });
+        }
+        
+        // Version management event listeners
+        if (this.refreshVersionBtn) {
+            this.refreshVersionBtn.addEventListener('click', () => {
+                this.checkVersionInfo();
+            });
+        }
+        
+        if (this.updateRepoBtn) {
+            this.updateRepoBtn.addEventListener('click', () => {
+                this.updateRepository();
+            });
+        }
+        
+        if (this.rebuildAfterUpdateBtn) {
+            this.rebuildAfterUpdateBtn.addEventListener('click', () => {
+                this.updateAndRebuild();
             });
         }
         
@@ -752,6 +779,142 @@ class IkLlamaDashboard {
 
     viewBuildLogs() {
         this.showLogsModal();
+    }
+
+    // Version Management Methods
+    async checkVersionInfo() {
+        if (!this.versionStatusEl) return;
+        
+        // Show checking status
+        this.versionStatusEl.className = 'version-status checking';
+        this.versionStatusEl.textContent = 'Checking...';
+        
+        // Disable action buttons while checking
+        if (this.refreshVersionBtn) this.refreshVersionBtn.disabled = true;
+        if (this.updateRepoBtn) this.updateRepoBtn.disabled = true;
+        if (this.rebuildAfterUpdateBtn) this.rebuildAfterUpdateBtn.disabled = true;
+        
+        try {
+            const data = await this.apiCall('/api/version');
+            
+            // Update version display
+            if (this.currentVersionEl) {
+                this.currentVersionEl.textContent = data.current_version || 'Unknown';
+            }
+            
+            if (this.latestVersionEl) {
+                this.latestVersionEl.textContent = data.latest_commit ? data.latest_commit.substring(0, 8) : 'Unknown';
+            }
+            
+            // Update status
+            if (data.update_available) {
+                this.versionStatusEl.className = 'version-status update-available';
+                this.versionStatusEl.textContent = 'Update Available';
+                
+                // Show action buttons
+                if (this.versionActionsEl) {
+                    this.versionActionsEl.style.display = 'flex';
+                }
+            } else {
+                this.versionStatusEl.className = 'version-status up-to-date';
+                this.versionStatusEl.textContent = 'Up to Date';
+                
+                // Hide action buttons
+                if (this.versionActionsEl) {
+                    this.versionActionsEl.style.display = 'none';
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error checking version:', error);
+            this.versionStatusEl.className = 'version-status error';
+            this.versionStatusEl.textContent = 'Error checking version';
+            
+            if (this.currentVersionEl) this.currentVersionEl.textContent = 'Error';
+            if (this.latestVersionEl) this.latestVersionEl.textContent = 'Error';
+        } finally {
+            // Re-enable buttons
+            if (this.refreshVersionBtn) this.refreshVersionBtn.disabled = false;
+            if (this.updateRepoBtn) this.updateRepoBtn.disabled = false;
+            if (this.rebuildAfterUpdateBtn) this.rebuildAfterUpdateBtn.disabled = false;
+        }
+    }
+    
+    async updateRepository() {
+        if (!confirm('This will update the ik_llama.cpp repository to the latest version. Continue?')) {
+            return;
+        }
+        
+        // Disable buttons during update
+        if (this.updateRepoBtn) {
+            this.updateRepoBtn.disabled = true;
+            this.updateRepoBtn.textContent = 'Updating...';
+        }
+        if (this.rebuildAfterUpdateBtn) this.rebuildAfterUpdateBtn.disabled = true;
+        
+        try {
+            const data = await this.apiCall('/api/update-repo', {
+                method: 'POST'
+            });
+            
+            if (data.success) {
+                alert('Repository updated successfully!');
+                // Refresh version info after update
+                this.checkVersionInfo();
+            } else {
+                alert(`Update failed: ${data.message}`);
+            }
+            
+        } catch (error) {
+            console.error('Error updating repository:', error);
+            alert('Error updating repository. Please check the logs.');
+        } finally {
+            // Re-enable buttons
+            if (this.updateRepoBtn) {
+                this.updateRepoBtn.disabled = false;
+                this.updateRepoBtn.textContent = 'Update Repository';
+            }
+            if (this.rebuildAfterUpdateBtn) this.rebuildAfterUpdateBtn.disabled = false;
+        }
+    }
+    
+    async updateAndRebuild() {
+        if (!confirm('This will update the repository and rebuild ik_llama.cpp. This may take several minutes. Continue?')) {
+            return;
+        }
+        
+        // First update the repository
+        if (this.rebuildAfterUpdateBtn) {
+            this.rebuildAfterUpdateBtn.disabled = true;
+            this.rebuildAfterUpdateBtn.textContent = 'Updating & Building...';
+        }
+        if (this.updateRepoBtn) this.updateRepoBtn.disabled = true;
+        
+        try {
+            // Update repository first
+            const updateData = await this.apiCall('/api/update-repo', {
+                method: 'POST'
+            });
+            
+            if (!updateData.success) {
+                alert(`Update failed: ${updateData.message}`);
+                return;
+            }
+            
+            // Then start the build process
+            this.startBuild();
+            
+        } catch (error) {
+            console.error('Error during update and rebuild:', error);
+            alert('Error during update and rebuild. Please check the logs.');
+        } finally {
+            // Re-enable buttons
+            if (this.rebuildAfterUpdateBtn) {
+                this.rebuildAfterUpdateBtn.disabled = false;
+                this.rebuildAfterUpdateBtn.textContent = 'Update & Rebuild';
+            }
+            if (this.updateRepoBtn) this.updateRepoBtn.disabled = false;
+        }
     }
 
     async scanForModels() {
@@ -2147,9 +2310,29 @@ class IkLlamaDashboard {
                 console.log('Unload model response data:', data);
                 
                 if (data.success) {
-                    this.handleUnloadSuccess(data.message);
+                    // Enhanced success handling with context
+                    let message = data.message;
+                    if (data.context) {
+                        const context = data.context;
+                        console.log('Unload context:', context);
+                        
+                        // Add contextual information to the message
+                        if (context.had_active_requests && !context.was_forced) {
+                            message += ' (Note: Server had active requests)';
+                        }
+                        if (!context.server_was_responsive) {
+                            message += ' (Server was unresponsive)';
+                        }
+                    }
+                    
+                    this.handleUnloadSuccess(message);
                 } else {
-                    throw new Error(data.error || 'Failed to unload model');
+                    // Enhanced error handling with context
+                    let errorMessage = data.error || 'Failed to unload model';
+                    if (data.context && !data.context.server_was_responsive) {
+                        errorMessage += ' (Server was unresponsive - try force unload)';
+                    }
+                    throw new Error(errorMessage);
                 }
             } else {
                 const errorData = await response.json().catch(() => ({}));
@@ -2158,14 +2341,18 @@ class IkLlamaDashboard {
         } catch (error) {
             console.error('Error unloading model:', error);
             
-            // Show error in UI
+            // Show error in UI with enhanced feedback
             this.modelsPageStatusIcon.textContent = '❌';
             this.modelsPageStatusIcon.className = 'status-icon error';
             this.modelsPageStatusText.textContent = 'Unload Failed';
             this.modelsPageStatusDetails.textContent = `Error: ${error.message}`;
             
-            // Show alert to user
-            alert(`Failed to unload model: ${error.message}`);
+            // Show alert to user with enhanced context
+            let alertMessage = `Failed to unload model: ${error.message}`;
+            if (error.message.includes('unresponsive')) {
+                alertMessage += '\n\nTip: Try using the "Force Unload" button for unresponsive servers.';
+            }
+            alert(alertMessage);
         } finally {
             if (this.modelsPageLoading) {
                 this.modelsPageLoading.style.display = 'none';

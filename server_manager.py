@@ -9,6 +9,8 @@ import logging
 import atexit
 import platform
 import queue
+import signal
+import psutil
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,15 +31,25 @@ class LlamaServerManager:
         self._startup_timeout = 90  # seconds
         self._shutdown_timeout = 10  # seconds
         
+        # Progressive timeout strategy for enhanced shutdown
+        self._shutdown_timeouts = {
+            'graceful': 5,    # Wait for graceful shutdown
+            'terminate': 5,   # Wait after SIGTERM
+            'kill': 2         # Wait after SIGKILL
+        }
+        
         # Process monitoring
         self._monitor_thread = None
         self._monitor_active = False
-        self._restart_attempts = 0
-        self._max_restart_attempts = 3
+        # Removed auto-restart functionality - monitoring is now passive only
         
         # Build integration
         self._build_version = None
         self._last_build_check = 0
+        
+        # Server output capture
+        self._server_output_lines = []
+        self._reading_startup_output = False
         
         # Register cleanup handler
         atexit.register(self._cleanup_on_exit)
@@ -83,361 +95,347 @@ class LlamaServerManager:
         except Exception as e:
             return False, f"Version check error: {str(e)}"
 
-    def start_server(self, config):
-        """Start llama-server with given configuration"""
-        with self._state_lock:
-            # Check for build changes
-            if self._check_build_changes() and self.is_server_running:
-                logger.info("Build changed, restarting server...")
-                self._stop_server_internal(force=False)
-            
-            # Stop existing server if running
-            if self.server_process:
-                self.stop_server()
+    def start_server(self, config, stream_progress=False):
+        """Start llama-server with given configuration
         
-        try:
-            # Handle model path - support both relative and absolute paths
-            model_path = config["model"]
-            
-            # If it's a relative path, check if it exists relative to the current directory
-            if not os.path.isabs(model_path):
-                # First try relative to current directory
-                if os.path.exists(model_path):
-                    model_path = os.path.abspath(model_path)
-                # If not found, try relative to models directory
-                elif os.path.exists(os.path.join("models", model_path)):
-                    model_path = os.path.abspath(os.path.join("models", model_path))
-                # If still not found, try the original path as absolute
-                else:
-                    model_path = os.path.abspath(model_path)
+        Args:
+            config: Server configuration dictionary
+            stream_progress: If True, yields progress updates; if False, returns boolean result
+        """
+        def _progress_update(status, progress, message):
+            """Helper to handle progress updates"""
+            if stream_progress:
+                return f"data: {json.dumps({'status': status, 'progress': progress, 'message': message})}\\n\\n"
             else:
-                # It's already an absolute path
-                model_path = os.path.abspath(model_path)
-            
-            if not os.path.exists(model_path):
-                return False, f"Model file not found: {model_path}"
-            
-            print(f"Using model path: {model_path}")
-            
-            # Find llama-server executable
-            executable = self.find_llama_server()
-            if not executable:
-                return False, "llama-server executable not found. Please build ik_llama.cpp first."
-            
-            # Build command line arguments
-            cmd = [
-                executable,
-                "-m", model_path,
-                "--host", self.server_host,
-                "--port", str(self.server_port),
-                "-c", str(config["ctx_size"]),
-                "--threads", str(config.get("threads", 8)),
-                "--timeout", "3600"  # Set server timeout to 1 hour to prevent connection interruptions
-            ]
-            
-            # Add ik_llama.cpp specific parameters
-            if config.get("n_gpu_layers", 0) > 0:
-                cmd.extend(["-ngl", str(config["n_gpu_layers"])])
-            
-            if config.get("ctk"):
-                cmd.extend(["-ctk", config["ctk"]])
-            
-            if config.get("mla") and config.get("mla") > 0:
-                cmd.extend(["-mla", str(config["mla"])])
-            
-            if config.get("flash_attn", False):
-                cmd.append("-fa")
-            
-            if config.get("amb"):
-                cmd.extend(["-amb", str(config["amb"])])
-            
-            if config.get("fmoe", False):
-                cmd.append("-fmoe")
-            
-            if config.get("ser", False):
-                cmd.append("-ser")
-            
-            if config.get("rtr", False):
-                cmd.append("-rtr")
-                
-            # Add override tensor pattern option
-            if config.get("override_tensor"):
-                cmd.append("-ot")
-                cmd.append(config.get("override_tensor"))
-            
-            # Add mmap option (disabled by default in ik_llama.cpp, so add --no-mmap if disabled)
-            if not config.get("mmap", True):
-                cmd.append("--no-mmap")
-            
-            print(f"Starting llama-server with command: {' '.join(cmd)}")
-            
-            # Start the server process
-            # CRITICAL: Don't capture stdout/stderr to avoid pipe deadlock during streaming
-            # The subprocess will block if pipes fill up while Flask is busy streaming responses
-            self.server_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                preexec_fn=None if platform.system() == "Windows" else os.setsid
-            )
-            
-            # Start process monitoring
-            self._monitor_active = True
-            self._monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
-            self._monitor_thread.start()
-            
-            # Wait for server to start (use configured timeout)
-            if not self.wait_for_server(max_wait_seconds=self._startup_timeout):
-                self._stop_server_internal(force=True)
-                return False, "Server failed to start or is not responding"
-            
-            # Server is now available and configured
-            self.current_config = config
-            self.current_config["model"] = model_path  # Store the resolved absolute path
-            self.is_server_running = True
-            self._restart_attempts = 0  # Reset restart counter on successful start
-            print("Server started successfully")
-            return True, f"Server started successfully at {self.server_url}"
-        except Exception as e:
-            # Cleanup on error
-            self._stop_server_internal(force=True)
-            return False, str(e)
-
-    def start_server_stream(self, config):
-        """Start llama-server with streaming output for real-time feedback"""
-        with self._state_lock:
-            # Check for build changes
+                print(f"[{progress}%] {message}")
+                return None
+        
+        # Generator function for streaming
+        def _start_server_internal():
+            with self._state_lock:
+                # Check for build changes
                 if self._check_build_changes() and self.is_server_running:
-                    yield f"data: {json.dumps({'status': 'preparing', 'progress': 2, 'message': 'Build changed, restarting server...'})}\\n\\n"
+                    update = _progress_update('preparing', 2, 'Build changed, restarting server...')
+                    if update: yield update
                     self._stop_server_internal(force=False)
                 
                 # Stop existing server if running
                 if self.server_process:
-                    self.stop_server()
-                yield f"data: {json.dumps({'status': 'preparing', 'progress': 5, 'message': 'Stopping existing server...'})}\\n\\n"
-        
-        try:
-            # Handle model path - support both relative and absolute paths
-            model_path = config["model"]
+                    # Check if process is actually alive before attempting graceful shutdown
+                    if self.server_process.poll() is None:
+                        # Process is alive, attempt graceful shutdown
+                        self._stop_server_internal(force=False)
+                        update = _progress_update('preparing', 5, 'Stopping existing server...')
+                        if update: yield update
+                    else:
+                        # Process is already dead, just clean up
+                        logger.info(f"Existing server process (PID: {self.server_process.pid}) is already dead, cleaning up...")
+                        self._cleanup_server_resources()
+                        self.server_process = None
+                        self.is_server_running = False
+                        update = _progress_update('preparing', 5, 'Cleaning up dead server process...')
+                        if update: yield update
             
-            yield f"data: {json.dumps({'status': 'preparing', 'progress': 10, 'message': 'Resolving model path...'})}\\n\\n"
-            
-            # If it's a relative path, check if it exists relative to the current directory
-            if not os.path.isabs(model_path):
-                # First try relative to current directory
-                if os.path.exists(model_path):
-                    model_path = os.path.abspath(model_path)
-                # If not found, try relative to models directory
-                elif os.path.exists(os.path.join("models", model_path)):
-                    model_path = os.path.abspath(os.path.join("models", model_path))
-                # If still not found, try the original path as absolute
-                else:
-                    model_path = os.path.abspath(model_path)
-            else:
-                # It's already an absolute path
-                model_path = os.path.abspath(model_path)
-            
-            if not os.path.exists(model_path):
-                yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Model file not found: {model_path}'})}\\n\\n"
-                return
-            
-            yield f"data: {json.dumps({'status': 'preparing', 'progress': 15, 'message': f'Found model: {os.path.basename(model_path)}'})}\\n\\n"
-            
-            # Find llama-server executable
-            executable = self.find_llama_server()
-            if not executable:
-                yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': 'llama-server executable not found. Please build ik_llama.cpp first.'})}\\n\\n"
-                return
-            
-            yield f"data: {json.dumps({'status': 'preparing', 'progress': 20, 'message': 'Found llama-server executable'})}\\n\\n"
-            
-            # Build command line arguments
-            cmd = [
-                executable,
-                "-m", model_path,
-                "--host", self.server_host,
-                "--port", str(self.server_port),
-                "-c", str(config["ctx_size"]),
-                "--threads", str(config.get("threads", 8)),
-                "--timeout", "3600"  # Set server timeout to 1 hour to prevent connection interruptions
-            ]
-            
-            # Add ik_llama.cpp specific parameters
-            if config.get("n_gpu_layers", 0) > 0:
-                cmd.extend(["-ngl", str(config["n_gpu_layers"])])
-            
-            if config.get("ctk"):
-                cmd.extend(["-ctk", config["ctk"]])
-            
-            if config.get("mla") and config.get("mla") > 0:
-                cmd.extend(["-mla", str(config["mla"])])
-            
-            if config.get("flash_attn", False):
-                cmd.append("-fa")
-            
-            if config.get("amb"):
-                cmd.extend(["-amb", str(config["amb"])])
-            
-            if config.get("fmoe", False):
-                cmd.append("-fmoe")
-            
-            if config.get("ser", False):
-                cmd.append("-ser")
-            
-            if config.get("rtr", False):
-                cmd.append("-rtr")
-                
-            # Add override tensor pattern option
-            if config.get("override_tensor"):
-                cmd.append("-ot")
-                cmd.append(config.get("override_tensor"))
-            
-            yield f"data: {json.dumps({'status': 'starting', 'progress': 25, 'message': 'Starting llama-server process...'})}\\n\\n"
-            
-            # Start the server process with enhanced monitoring
-            self.server_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                preexec_fn=None if platform.system() == "Windows" else os.setsid,
-                universal_newlines=True
-            )
-            # Start monitoring thread after successful process creation
-            if self.server_process:
-                self._monitor_active = True
-                self._monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
-                self._monitor_thread.start()
-            yield f"data: {json.dumps({'status': 'loading', 'progress': 30, 'message': 'Server process started, loading model...'})}\\n\\n"
-            
-            # Read server output in real-time
-            progress = 30
-            server_ready = False
-            
-            # Use a separate thread to monitor server output
-            output_queue = queue.Queue()
-            
-            def read_output():
-                try:
-                    for line in iter(self.server_process.stdout.readline, ''):
-                        if line.strip():
-                            output_queue.put(('output', line.strip()))
-                        if self.server_process.poll() is not None:
-                            break
-                    output_queue.put(('done', None))
-                except Exception as e:
-                    output_queue.put(('error', str(e)))
-            
-            output_thread = threading.Thread(target=read_output)
-            output_thread.daemon = True
-            output_thread.start()
-            
-            # Monitor output and health check
-            max_wait_time = 90
-            start_time = time.time()
-            last_health_check = 0
-            last_progress_update = 0
-            
-            while time.time() - start_time < max_wait_time:
-                try:
-                    # Check for new output
-                    try:
-                        msg_type, content = output_queue.get(timeout=1)
-                        if msg_type == 'output':
-                            progress = min(progress + 1, 85)
-                            last_progress_update = time.time()
-                            # Truncate long messages
-                            display_content = content[:100] + "..." if len(content) > 100 else content
-                            yield f"data: {json.dumps({'status': 'loading', 'progress': progress, 'message': f'Server: {display_content}'})}\\n\\n"
-                            
-                            # Check if server is ready after seeing "listening" message
-                            if "listening on" in content.lower() or "server is listening" in content.lower():
-                                # Give server more time to fully initialize API endpoints
-                                print("Server is listening, waiting for API endpoints to initialize...")
-                                time.sleep(5)  # Increased from 2 to 5 seconds
-                                # Full health check with inference test when server first starts
-                                if self.health_check(test_inference=True):
-                                    server_ready = True
-                                    break
-                                    
-                        elif msg_type == 'done':
-                            break
-                        elif msg_type == 'error':
-                            yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Server output error: {content}'})}\\n\\n"
-                            return
-                    except queue.Empty:
-                        pass
-                    
-                    # Periodic health check (only if no recent output)
-                    current_time = time.time()
-                    if current_time - last_health_check > 10 and current_time - last_progress_update > 5:  # Increased from 5s to 10s, and from 3s to 5s
-                        last_health_check = current_time
-                        # Use simplified health check for periodic checks during startup
-                        if self.health_check(test_inference=False):
-                            server_ready = True
-                            break
-                        else:
-                            # Check if process is still running
-                            if self.server_process.poll() is not None:
-                                yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': 'Server process terminated unexpectedly'})}\\n\\n"
-                                return
-                            
-                            elapsed = int(current_time - start_time)
-                            # Only show waiting message if we haven't had recent progress
-                            if current_time - last_progress_update > 10:
-                                yield f"data: {json.dumps({'status': 'loading', 'progress': progress, 'message': f'Waiting for server to respond... ({elapsed}s)'})}\\n\\n"
-                
-                except Exception as e:
-                    yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Error during startup: {str(e)}'})}\\n\\n"
-                    return
-            
-            if not server_ready:
-                yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': 'Server failed to start or is not responding within timeout'})}\\n\\n"
-                return
-            
-            # Server is ready
-            logger.info("Health check passed, server is ready. Sending finalizing message...")
-            yield f"data: {json.dumps({'status': 'finalizing', 'progress': 90, 'message': 'Server is responding, finalizing setup...'})}\\n\\n"
-            
-            # CRITICAL FIX: Instead of closing stdout pipe (which can hang), 
-            # we'll just set it to None to prevent further monitoring
-            # The pipe will be cleaned up when the process terminates
             try:
-                logger.info("Detaching from stdout pipe to prevent buffer overflow...")
-                if self.server_process and self.server_process.stdout:
-                    # Don't close the pipe as it can hang - just stop monitoring it
-                    self.server_process.stdout = None
-                    logger.info("Successfully detached from stdout pipe")
+                # Handle model path - support both relative and absolute paths
+                model_path = config["model"]
+                
+                update = _progress_update('preparing', 10, 'Resolving model path...')
+                if update: yield update
+                
+                # If it's a relative path, check if it exists relative to the current directory
+                if not os.path.isabs(model_path):
+                    # First try relative to current directory
+                    if os.path.exists(model_path):
+                        model_path = os.path.abspath(model_path)
+                    # If not found, try relative to models directory
+                    elif os.path.exists(os.path.join("models", model_path)):
+                        model_path = os.path.abspath(os.path.join("models", model_path))
+                    # If still not found, try the original path as absolute
+                    else:
+                        model_path = os.path.abspath(model_path)
                 else:
-                    logger.info("No stdout pipe to detach from")
+                    # It's already an absolute path
+                    model_path = os.path.abspath(model_path)
+                
+                if not os.path.exists(model_path):
+                    error_msg = f'Model file not found: {model_path}'
+                    update = _progress_update('error', 0, error_msg)
+                    if update: 
+                        yield update
+                        return
+                    else:
+                        raise FileNotFoundError(error_msg)
+                
+                update = _progress_update('preparing', 15, f'Found model: {os.path.basename(model_path)}')
+                if update: yield update
+                
+                print(f"Using model path: {model_path}")
+                
+                # Find llama-server executable
+                executable = self.find_llama_server()
+                if not executable:
+                    error_msg = 'llama-server executable not found. Please build ik_llama.cpp first.'
+                    update = _progress_update('error', 0, error_msg)
+                    if update:
+                        yield update
+                        return
+                    else:
+                        raise FileNotFoundError(error_msg)
+                
+                update = _progress_update('preparing', 20, 'Found llama-server executable')
+                if update: yield update
+                
+                # Build command line arguments
+                cmd = [
+                    executable,
+                    "-m", model_path,
+                    "--host", self.server_host,
+                    "--port", str(self.server_port),
+                    "-c", str(config["ctx_size"]),
+                    "--threads", str(config.get("threads", 8)),
+                    "--timeout", "3600"  # Set server timeout to 1 hour to prevent connection interruptions
+                ]
+                
+                # Add ik_llama.cpp specific parameters
+                if config.get("n_gpu_layers", 0) > 0:
+                    cmd.extend(["-ngl", str(config["n_gpu_layers"])])
+                
+                if config.get("ctk"):
+                    cmd.extend(["-ctk", config["ctk"]])
+                
+                if config.get("mla") and config.get("mla") > 0:
+                    cmd.extend(["-mla", str(config["mla"])])
+                
+                if config.get("flash_attn", False):
+                    cmd.append("-fa")
+                
+                if config.get("amb"):
+                    cmd.extend(["-amb", str(config["amb"])])
+                
+                if config.get("fmoe", False):
+                    cmd.append("-fmoe")
+                
+                if config.get("ser", False):
+                    cmd.append("-ser")
+                
+                if config.get("rtr", False):
+                    cmd.append("-rtr")
+                    
+                # Add override tensor pattern option
+                if config.get("override_tensor"):
+                    cmd.append("-ot")
+                    cmd.append(config.get("override_tensor"))
+                
+                # Add mmap option (disabled by default in ik_llama.cpp, so add --no-mmap if disabled)
+                if not config.get("mmap", True):
+                    cmd.append("--no-mmap")
+                
+                update = _progress_update('starting', 25, 'Starting llama-server process...')
+                if update: yield update
+                
+                print(f"Starting llama-server with command: {' '.join(cmd)}")
+                
+                # Start the server process with enhanced monitoring and process group
+                # Create new process group on Unix-like systems for better process management
+                if platform.system() != "Windows":
+                    preexec_fn = os.setsid
+                else:
+                    preexec_fn = None
+                
+                # Always capture stdout/stderr for error reporting
+                self.server_process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    preexec_fn=preexec_fn,
+                    universal_newlines=True
+                )
+                
+                # Store server output for error reporting
+                self._server_output_lines = []
+                
+                # Start monitoring thread after successful process creation
+                if self.server_process:
+                    self._monitor_active = True
+                    self._monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
+                    self._monitor_thread.start()
+                
+                update = _progress_update('loading', 30, 'Server process started, loading model...')
+                if update: yield update
+                
+                # Simple wait for server to start listening
+                progress = 30
+                server_ready = False
+                
+                update = _progress_update('loading', 50, 'Waiting for server to start listening...')
+                if update: yield update
+                
+                # Monitor server output and wait for it to be ready
+                max_wait_time = self._startup_timeout
+                start_time = time.time()
+                output_thread = None
+                
+                # Flag to control output reading
+                self._reading_startup_output = True
+                
+                # Start a thread to read server output during startup only
+                def read_startup_output():
+                    try:
+                        while self.server_process and self.server_process.poll() is None and self._reading_startup_output:
+                            line = self.server_process.stdout.readline()
+                            if line:
+                                line = line.strip()
+                                self._server_output_lines.append(line)
+                                # Print important messages to console for debugging
+                                if any(keyword in line.lower() for keyword in ['loading model', 'error', 'failed', 'cuda', 'system info']):
+                                    print(f"Server startup: {line}")
+                            else:
+                                break
+                    except Exception as e:
+                        print(f"Error reading server startup output: {e}")
+                
+                output_thread = threading.Thread(target=read_startup_output, daemon=True)
+                output_thread.start()
+                
+                while time.time() - start_time < max_wait_time:
+                    # Check if process died
+                    if self.server_process.poll() is not None:
+                        # Process terminated - check if it was due to an error
+                        error_lines = []
+                        for line in self._server_output_lines[-20:]:  # Get last 20 lines
+                            if any(keyword in line.lower() for keyword in ['error', 'failed', 'exception', 'invalid']):
+                                error_lines.append(line)
+                        
+                        if error_lines:
+                            error_msg = f'Model loading failed: {error_lines[-1]}'
+                        else:
+                            error_msg = 'Server process terminated unexpectedly'
+                        
+                        # Reset server state on failure
+                        self.is_server_running = False
+                        self.current_config = None
+                        self._reading_startup_output = False
+                        
+                        update = _progress_update('error', 0, error_msg)
+                        if update:
+                            yield update
+                            return
+                        else:
+                            raise RuntimeError(error_msg)
+                    
+                    # Simple socket check to see if server is listening
+                    if self.health_check():
+                        server_ready = True
+                        break
+                    
+                    # Update progress with server output if available
+                    elapsed = int(time.time() - start_time)
+                    progress = min(50 + (elapsed * 2), 85)  # Gradually increase progress
+                    
+                    # Show recent server output in progress message
+                    recent_output = ""
+                    if self._server_output_lines:
+                        # Get the most recent interesting line
+                        for line in reversed(self._server_output_lines[-5:]):
+                            if any(keyword in line.lower() for keyword in ['loading', 'model', 'cuda', 'system']):
+                                recent_output = f" - {line[:60]}..." if len(line) > 60 else f" - {line}"
+                                break
+                    
+                    message = f'Starting server... ({elapsed}s){recent_output}'
+                    update = _progress_update('loading', progress, message)
+                    if update: yield update
+                    time.sleep(2)
+                
+                if not server_ready:
+                    # Include server output in timeout error
+                    error_lines = []
+                    for line in self._server_output_lines[-10:]:  # Get last 10 lines
+                        if any(keyword in line.lower() for keyword in ['error', 'failed', 'exception', 'invalid', 'timeout']):
+                            error_lines.append(line)
+                    
+                    if error_lines:
+                        error_msg = f'Server startup timeout. Last error: {error_lines[-1]}'
+                    else:
+                        error_msg = f'Server failed to start within {max_wait_time}s timeout'
+                    
+                    # Reset server state on timeout
+                    self.is_server_running = False
+                    self.current_config = None
+                    self._reading_startup_output = False
+                    
+                    update = _progress_update('error', 0, error_msg)
+                    if update:
+                        yield update
+                        return
+                    else:
+                        self._stop_server_internal(force=True)
+                        raise TimeoutError(error_msg)
+                
+                # Server is ready - stop reading startup output
+                self._reading_startup_output = False
+                
+                update = _progress_update('finalizing', 90, 'Server is responding, finalizing setup...')
+                if update: yield update
+                
+                # Clean up stdout pipe to prevent buffer overflow (only for streaming mode)
+                if stream_progress:
+                    try:
+                        if self.server_process and self.server_process.stdout:
+                            self.server_process.stdout = None
+                    except Exception as e:
+                        print(f"Warning: Failed to detach from stdout pipe: {e}")
+                
+                update = _progress_update('finalizing', 95, 'Optimizing server configuration...')
+                if update: yield update
+                
+                # Server is now available and configured
+                self.current_config = config
+                self.current_config["model"] = model_path  # Store the resolved absolute path
+                self.is_server_running = True
+                
+                success_msg = f'Model loaded successfully! Server running at {self.server_url}'
+                update = _progress_update('success', 100, success_msg)
+                if update: 
+                    yield update
+                    time.sleep(0.5)  # Ensure message is sent before stream closes
+                else:
+                    print("Server started successfully")
+                    
             except Exception as e:
-                logger.warning(f"Failed to detach from stdout pipe: {e}")
-                # Continue anyway - this is not critical for functionality
-            
-            logger.info("Sending optimization message...")
-            yield f"data: {json.dumps({'status': 'finalizing', 'progress': 95, 'message': 'Optimizing server configuration...'})}\\n\\n"
-            
-            # Server is now available and configured
-            logger.info("Setting server configuration...")
-            self.current_config = config
-            self.current_config["model"] = model_path  # Store the resolved absolute path
-            self.is_server_running = True
-            
-            logger.info("Sending success message...")
-            yield f"data: {json.dumps({'status': 'success', 'progress': 100, 'message': f'Model loaded successfully! Server running at {self.server_url}'})}\\n\\n"
-            
-            # Add a small delay to ensure the success message is sent before stream closes
-            time.sleep(0.5)
-            logger.info("Model loading stream completed successfully!")
+                error_msg = f'Server start failed: {str(e)}'
+                update = _progress_update('error', 0, error_msg)
+                if update:
+                    yield update
+                else:
+                    print(f"Error: {error_msg}")
+                
+                if self.server_process:
+                    self._stop_server_internal(force=True)
+                
+                if not stream_progress:
+                    raise
         
-        except Exception as e:
-            logger.error(f"Error in start_server_stream: {e}")
-            yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Server start failed: {str(e)}'})}\\n\\n"
+        # Execute the internal function
+        if stream_progress:
+            # Return generator for streaming
+            return _start_server_internal()
+        else:
+            # Execute and return boolean result
+            try:
+                list(_start_server_internal())  # Consume the generator
+                return True, f"Server started successfully at {self.server_url}"
+            except Exception as e:
+                return False, str(e)
 
-            if self.server_process:
-                self._stop_server_internal(force=True)
+    def start_server_stream(self, config):
+        """Start llama-server with streaming output for real-time feedback
+        
+        This method is deprecated. Use start_server(config, stream_progress=True) instead.
+        """
+        return self.start_server(config, stream_progress=True)
     
     def stop_server(self, force=False):
         """Stop the llama-server"""
@@ -452,54 +450,231 @@ class LlamaServerManager:
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
     
+    def _has_active_requests(self):
+        """Check if server has active requests before shutdown"""
+        try:
+            response = requests.get(f"{self.server_url}/slots", timeout=2)
+            if response.status_code == 200:
+                slots = response.json()
+                active_slots = [s for s in slots if s.get('state') == 'processing']
+                return len(active_slots) > 0
+        except:
+            # If we can't check, assume no active requests
+            return False
+        return False
+    
+    def _terminate_remaining_processes(self):
+        """Terminate any remaining llama-server processes"""
+        try:
+            terminated_count = 0
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    # Check if this is a llama-server process
+                    if (proc.info['name'] and 'llama-server' in proc.info['name'].lower()) or \
+                       (proc.info['cmdline'] and any('llama-server' in str(arg).lower() for arg in proc.info['cmdline'])):
+                        logger.info(f"Terminating remaining llama-server process (PID: {proc.info['pid']})")
+                        proc.terminate()
+                        terminated_count += 1
+                        
+                        # Wait a bit then force kill if still alive
+                        try:
+                            proc.wait(timeout=2)
+                        except psutil.TimeoutExpired:
+                            logger.info(f"Force killing stubborn process (PID: {proc.info['pid']})")
+                            proc.kill()
+                            
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    # Process already gone or we don't have permission
+                    continue
+                    
+            if terminated_count > 0:
+                logger.info(f"Terminated {terminated_count} remaining llama-server processes")
+                
+        except Exception as e:
+            logger.warning(f"Error during process cleanup: {e}")
+    
+    def _wait_for_port_release(self, max_wait_seconds=10):
+        """Wait for the server port to be fully released after shutdown"""
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait_seconds:
+            try:
+                # Try to bind to the port to see if it's available
+                test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                test_socket.bind((self.server_host, self.server_port))
+                test_socket.close()
+                
+                elapsed = time.time() - start_time
+                logger.info(f"Port {self.server_port} is available after {elapsed:.2f}s")
+                return True
+                
+            except OSError as e:
+                # Port is still in use, wait a bit more
+                if "Address already in use" in str(e) or "Only one usage" in str(e):
+                    time.sleep(0.5)
+                    continue
+                else:
+                    # Some other error, log it but don't wait
+                    logger.warning(f"Unexpected error checking port availability: {e}")
+                    return False
+            except Exception as e:
+                logger.warning(f"Error checking port availability: {e}")
+                return False
+        
+        elapsed = time.time() - start_time
+        logger.warning(f"Port {self.server_port} still not available after {elapsed:.2f}s, proceeding anyway")
+        return False
+    
+    def _cleanup_server_resources(self):
+        """Clean up server resources after shutdown"""
+        try:
+            # Stop monitoring thread first to prevent restart attempts
+            self._monitor_active = False
+            if self._monitor_thread and self._monitor_thread.is_alive():
+                self._monitor_thread.join(timeout=2)
+                logger.debug("Monitoring thread stopped during cleanup")
+            
+            # Reset server state
+            self.current_config = None
+            self._last_health_check = 0
+            
+            # Clear server output from previous runs
+            self._server_output_lines = []
+            
+            # Terminate any remaining processes as a safety measure
+            self._terminate_remaining_processes()
+            
+            logger.debug("Server resources cleaned up")
+        except Exception as e:
+            logger.warning(f"Error during resource cleanup: {e}")
+    
     def _stop_server_internal(self, force=False):
-        """Internal method to stop server with enhanced control"""
+        """Internal method to stop server with enhanced progressive control"""
+        shutdown_start_time = time.time()
+        shutdown_method = "force" if force else "graceful"
+        
+        logger.info(f"Starting {shutdown_method} server shutdown (PID: {self.server_process.pid if self.server_process else 'None'})")
+        
         with self._state_lock:
             if not self.server_process:
+                logger.info("No server process to stop")
                 self.is_server_running = False
                 return True
             
             try:
                 # Stop monitoring first
+                logger.debug("Stopping server monitoring thread...")
                 self._monitor_active = False
                 if self._monitor_thread and self._monitor_thread.is_alive():
                     self._monitor_thread.join(timeout=2)
+                    logger.debug("Monitoring thread stopped")
                 
-                # Graceful shutdown first
+                # Check for active requests if not forcing
+                active_requests_detected = False
+                if not force and self._has_active_requests():
+                    active_requests_detected = True
+                    logger.warning("Server has active requests, but proceeding with shutdown")
+                
+                # Progressive shutdown strategy
                 if not force and self.server_process.poll() is None:
-                    logger.info("Attempting graceful server shutdown...")
+                    # Step 1: Graceful shutdown attempt
+                    step_start = time.time()
+                    logger.info(f"Step 1: Attempting graceful shutdown (timeout: {self._shutdown_timeouts['graceful']}s)...")
                     self.server_process.terminate()
                     
-                    # Wait for graceful shutdown
                     try:
-                        self.server_process.wait(timeout=self._shutdown_timeout)
-                        logger.info("Server shut down gracefully")
+                        self.server_process.wait(timeout=self._shutdown_timeouts['graceful'])
+                        elapsed = time.time() - step_start
+                        logger.info(f"Server shut down gracefully in {elapsed:.2f}s")
+                        self._cleanup_server_resources()
+                        self.server_process = None
+                        self.is_server_running = False
+                        
+                        total_time = time.time() - shutdown_start_time
+                        logger.info(f"Total shutdown time: {total_time:.2f}s")
+                        return True
                     except subprocess.TimeoutExpired:
-                        logger.warning("Graceful shutdown timed out, forcing termination")
-                        force = True
+                        elapsed = time.time() - step_start
+                        logger.info(f"Graceful shutdown timed out after {elapsed:.2f}s, escalating to SIGTERM")
                 
-                # Force kill if needed
-                if force and self.server_process.poll() is None:
-                    logger.info("Force killing server process...")
-                    self.server_process.kill()
+                # Step 2: SIGTERM if graceful failed or force requested
+                if self.server_process and self.server_process.poll() is None:
+                    step_start = time.time()
+                    logger.info(f"Step 2: Sending SIGTERM (timeout: {self._shutdown_timeouts['terminate']}s)...")
+                    self.server_process.terminate()
+                    
                     try:
-                        self.server_process.wait(timeout=5)
+                        self.server_process.wait(timeout=self._shutdown_timeouts['terminate'])
+                        elapsed = time.time() - step_start
+                        logger.info(f"Server terminated successfully in {elapsed:.2f}s")
+                        self._cleanup_server_resources()
+                        self.server_process = None
+                        self.is_server_running = False
+                        
+                        total_time = time.time() - shutdown_start_time
+                        logger.info(f"Total shutdown time: {total_time:.2f}s")
+                        return True
                     except subprocess.TimeoutExpired:
-                        logger.error("Failed to kill server process")
+                        elapsed = time.time() - step_start
+                        logger.warning(f"SIGTERM timed out after {elapsed:.2f}s, escalating to SIGKILL")
+                
+                # Step 3: SIGKILL as last resort, including child processes
+                if self.server_process and self.server_process.poll() is None:
+                    step_start = time.time()
+                    logger.info(f"Step 3: Force killing with SIGKILL (timeout: {self._shutdown_timeouts['kill']}s)...")
+                    
+                    # Kill process group if available (Unix-like systems)
+                    if platform.system() != "Windows":
+                        try:
+                            pgid = os.getpgid(self.server_process.pid)
+                            os.killpg(pgid, signal.SIGKILL)
+                            logger.info(f"Killed entire process group (PGID: {pgid})")
+                        except (OSError, ProcessLookupError) as e:
+                            logger.warning(f"Failed to kill process group: {e}, falling back to single process")
+                            self.server_process.kill()
+                    else:
+                        self.server_process.kill()
+                        logger.info("Sent SIGKILL to process (Windows)")
+                    
+                    try:
+                        self.server_process.wait(timeout=self._shutdown_timeouts['kill'])
+                        elapsed = time.time() - step_start
+                        logger.info(f"Server killed successfully in {elapsed:.2f}s")
+                    except subprocess.TimeoutExpired:
+                        elapsed = time.time() - step_start
+                        logger.error(f"Failed to kill server process even with SIGKILL after {elapsed:.2f}s")
                         return False
                 
+                # Final cleanup
+                logger.debug("Performing final cleanup...")
+                self._cleanup_server_resources()
                 self.server_process = None
                 self.is_server_running = False
-                self._restart_attempts = 0
-                logger.info("Server stopped successfully")
+                
+                # Wait for port to be fully released after force shutdown
+                if force:
+                    logger.info("Waiting for port to be released after force shutdown...")
+                    self._wait_for_port_release()
+                
+                total_time = time.time() - shutdown_start_time
+                context_info = []
+                if force:
+                    context_info.append("forced")
+                if active_requests_detected:
+                    context_info.append("had active requests")
+                
+                context_str = f" ({', '.join(context_info)})" if context_info else ""
+                logger.info(f"Server stopped successfully in {total_time:.2f}s{context_str}")
                 return True
                 
             except Exception as e:
-                logger.error(f"Error stopping server: {e}")
+                total_time = time.time() - shutdown_start_time
+                logger.error(f"Error stopping server after {total_time:.2f}s: {e}")
                 return False
     
     def _monitor_server_process(self):
-        """Monitor server process and restart if needed"""
+        """Monitor server process for status reporting (no auto-restart)"""
         while self._monitor_active and self.server_process:
             try:
                 # Check if process is still alive
@@ -507,26 +682,15 @@ class LlamaServerManager:
                     logger.warning("Server process died unexpectedly")
                     
                     with self._state_lock:
-                        if self._restart_attempts < self._max_restart_attempts:
-                            self._restart_attempts += 1
-                            logger.info(f"Attempting restart {self._restart_attempts}/{self._max_restart_attempts}")
-                            
-                            # Try to restart with current config
-                            if self.current_config:
-                                try:
-                                    self.start_server(self.current_config)
-                                except Exception as e:
-                                    logger.error(f"Restart attempt failed: {e}")
-                        else:
-                            logger.error("Max restart attempts reached, giving up")
-                            self.is_server_running = False
-                            break
+                        self.is_server_running = False
+                        logger.info("Server marked as not running. Manual restart required.")
+                        break
                 
-                # Periodic health check
+                # Periodic health check (passive monitoring only)
                 current_time = time.time()
                 if current_time - self._last_health_check > self._health_check_interval:
                     if not self.health_check(test_inference=False):
-                        logger.warning("Health check failed")
+                        logger.warning("Health check failed - server may be unresponsive")
                     self._last_health_check = current_time
                 
                 time.sleep(10)  # Increased from 2 to 10 seconds to reduce monitoring frequency
@@ -573,130 +737,45 @@ class LlamaServerManager:
         return False
     
     def wait_for_server(self, max_wait_seconds=90):
-        """Wait for server to become available with incremental health checks"""
+        """Wait for server to become available with simple socket checks"""
         print(f"Waiting for server to start at {self.server_url}...")
 
-        total_waited = 0
-        check_interval = 2  # Start with 2-second intervals
-
-        while total_waited < max_wait_seconds:
-            # Use simplified health check without inference test for periodic checks
-            if self.health_check(test_inference=False):
-                print(f"Server started successfully after {total_waited} seconds")
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait_seconds:
+            if not self.server_process or self.server_process.poll() is not None:
+                print("Server process has terminated")
+                return False
+            
+            if self.health_check():
+                elapsed = int(time.time() - start_time)
+                print(f"Server is ready after {elapsed} seconds!")
                 return True
-
-            remaining_time = max_wait_seconds - total_waited
-            wait_time = min(check_interval, remaining_time)
-
-            # Adjust interval after some time has passed
-            if total_waited > 10:
-                check_interval = 5  # Increase to 5-second intervals after 10 seconds
-            if total_waited > 60:
-                check_interval = 10  # Increase to 10-second intervals after 60 seconds
-
-            print(f"Server not yet available. Waiting {wait_time} more seconds... ({total_waited}/{max_wait_seconds} seconds elapsed)")
-            time.sleep(wait_time)
-            total_waited += wait_time
-
+            
+            time.sleep(2)
+        
+        elapsed = int(time.time() - start_time)
+        print(f"Timeout waiting for server after {elapsed}s")
         return False
 
-    def health_check(self, test_inference=True):
-        """Check if server is responding and model is ready for inference
+    def health_check(self, test_inference=False):
+        """Simple health check - just verify server is responding
         
         Args:
-            test_inference: If True, test if model is ready for inference with a chat completion.
-                           If False, only check if server is responding to basic HTTP requests.
+            test_inference: Ignored for simplicity - we only do basic checks
         """
         import socket
         
         try:
-            # First, check if the port is open with a socket connection
-            print(f"Health check: Testing socket connection to {self.server_host}:{self.server_port}")
+            # Simple socket check
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3)
+            sock.settimeout(2)
             result = sock.connect_ex((self.server_host, self.server_port))
             sock.close()
             
-            if result != 0:
-                print(f"Health check: Socket connection failed (error {result})")
-                return False
-            
-            print("Health check: Socket connection successful, testing HTTP endpoints")
-            
-            # Try the models endpoint first to see if server is responding
-            server_responding = False
-            try:
-                print(f"Health check: Trying GET {self.server_url}/v1/models")
-                response = requests.get(f"{self.server_url}/v1/models", timeout=5)
-                print(f"Health check: Models endpoint returned status {response.status_code}")
-                if response.status_code == 200:
-                    print("Health check: Models endpoint successful")
-                    server_responding = True
-            except Exception as e:
-                print(f"Health check: Models endpoint failed: {e}")
-            
-            # If models endpoint failed, try root endpoint
-            if not server_responding:
-                try:
-                    print(f"Health check: Trying GET {self.server_url}/")
-                    response = requests.get(f"{self.server_url}/", timeout=5)
-                    print(f"Health check: Root endpoint returned status {response.status_code}")
-                    if response.status_code in [200, 404]:  # 404 is also fine, means server is responding
-                        print("Health check: Root endpoint successful")
-                        server_responding = True
-                except Exception as e:
-                    print(f"Health check: Root endpoint failed: {e}")
-            
-            if not server_responding:
-                print("Health check: Server not responding to basic HTTP requests")
-                return False
-            
-            # For routine checks, we can skip the chat completion test
-            if not test_inference:
-                print("Health check: Server is responding to basic HTTP requests, skipping inference test")
-                return True
-            
-            # Now test if the model is actually loaded and ready for inference
-            print("Health check: Server responding, testing if model is ready for inference...")
-            try:
-                test_data = {
-                    "messages": [{"role": "user", "content": "test"}],
-                    "stream": False,
-                    "max_tokens": 1,
-                    "temperature": 0.1
-                }
+            return result == 0
                 
-                print(f"Health check: Testing POST {self.server_url}/v1/chat/completions")
-                response = requests.post(f"{self.server_url}/v1/chat/completions", 
-                                       json=test_data, timeout=10)
-                print(f"Health check: Chat completions test returned status {response.status_code}")
-                
-                if response.status_code == 200:
-                    print("Health check: Model is ready for inference!")
-                    return True
-                elif response.status_code == 503:
-                    # Check if it's specifically a "Loading model" error
-                    try:
-                        error_data = response.json()
-                        if "Loading model" in str(error_data):
-                            print("Health check: Model is still loading, not ready yet")
-                            return False
-                    except:
-                        pass
-                    print(f"Health check: Server returned 503, model may still be loading")
-                    return False
-                else:
-                    print(f"Health check: Unexpected response from chat completions: {response.status_code}")
-                    # For other errors, we'll consider the server ready but there might be other issues
-                    return True
-                    
-            except Exception as e:
-                print(f"Health check: Chat completions test failed: {e}")
-                # If we can't test chat completions, fall back to basic server health
-                return server_responding
-            
-        except Exception as e:
-            print(f"Health check error: {e}")
+        except Exception:
             return False
 
     def server_health_check(self):
