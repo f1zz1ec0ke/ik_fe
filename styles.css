@@ -205,66 +205,131 @@
     border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Model Switching Styles */
-.model-switch-controls {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
+/* Multi-Model Management Styles */
+.multi-model-controls {
     margin-bottom: var(--spacing-lg);
 }
 
-.current-model-section {
+.loaded-models-section {
     border-top: 1px solid rgba(0, 0, 0, 0.1);
     padding-top: var(--spacing-lg);
 }
 
-.current-model-section h4 {
+.loaded-models-section h4 {
     margin-bottom: var(--spacing-md);
     color: var(--text-primary);
     font-size: 1.1rem;
     font-weight: 600;
 }
 
-.current-model-info {
-    padding: var(--spacing-sm);
-    background-color: rgba(255, 255, 255, 0.5);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: var(--radius-md);
-    min-height: 60px;
+.loaded-models-list {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: var(--spacing-sm);
 }
 
-.no-model-message {
+.no-models-message {
+    text-align: center;
     color: var(--text-muted);
     font-style: italic;
-    text-align: center;
-    width: 100%;
+    padding: var(--spacing-lg);
+    background-color: rgba(0, 0, 0, 0.02);
+    border-radius: var(--radius-md);
+    border: 1px dashed rgba(0, 0, 0, 0.1);
 }
 
-.current-model-display {
-    padding: var(--spacing-sm);
+.loaded-model-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-md);
     background-color: rgba(255, 255, 255, 0.5);
     border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: var(--radius-md);
+    transition: var(--transition-fast);
+}
+
+.loaded-model-item:hover {
+    background-color: rgba(255, 255, 255, 0.7);
+    border-color: var(--primary);
+}
+
+.loaded-model-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.loaded-model-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.loaded-model-details {
+    display: flex;
+    gap: var(--spacing-md);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.loaded-model-status {
     display: flex;
     align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 0.8rem;
 }
 
-.current-model-display .model-name {
-    font-weight: 500;
-    color: var(--text-primary);
+.loaded-model-status.ready {
+    color: var(--status-success);
 }
 
-/* Dark mode overrides for model switching styles */
-[data-theme="dark"] .current-model-section {
+.loaded-model-status.loading {
+    color: var(--status-warning);
+}
+
+.loaded-model-status.error {
+    color: var(--status-error);
+}
+
+.loaded-model-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.loaded-model-actions .icon-button {
+    padding: var(--spacing-xs);
+    font-size: 0.9rem;
+}
+
+/* Dark mode overrides for multi-model styles */
+[data-theme="dark"] .loaded-models-section {
     border-top-color: rgba(255, 255, 255, 0.1);
 }
 
-[data-theme="dark"] .current-model-info,
-[data-theme="dark"] .current-model-display {
+[data-theme="dark"] .no-models-message {
     background-color: rgba(255, 255, 255, 0.05);
     border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+}
+
+[data-theme="dark"] .loaded-model-item {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .loaded-model-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--primary);
+}
+
+[data-theme="dark"] .loaded-model-name {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .loaded-model-details {
+    color: var(--text-secondary);
 } 
 [data-theme="dark"] textarea {
     background-color: rgba(255, 255, 255, 0.1);
