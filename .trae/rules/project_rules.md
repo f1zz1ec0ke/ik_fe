@@ -1,0 +1,2 @@
+Do not attempt to start or restart the flask application. It will be restarted automatically and should always be accessible at http://localhost:5000
+If you cannot access the URL, tell me and I will resolve the issue.

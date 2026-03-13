@@ -13,8 +13,14 @@ develop-eggs/
 dist/
 downloads/
 eggs/
+__pycache__/
+debug.log
 .eggs/
 llama.cpp/
+ik_llama.cpp/
+.serena/
+runlog.txt
+models/mymodels/
 lib/
 lib64/
 parts/
