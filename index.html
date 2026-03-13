@@ -5,10 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ik_llama.cpp - The Ultimate LLM Toolkit</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .chat-tabs {
+            display: flex;
+            margin-bottom: 1rem;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        .chat-tab-btn {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #6b7280;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .chat-tab-btn:hover {
+            color: #3b82f6;
+            background: #f8fafc;
+        }
+        
+        .chat-tab-btn.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        
+        .chat-container {
+            display: flex;
+            height: calc(100vh - 180px);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .workflow-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            height: calc(100vh - 180px);
+            overflow-y: auto;
+        }
+        
+        .workflow-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .workflow-header h2 {
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+        
+        .workflow-header p {
+            color: #6b7280;
+            font-size: 16px;
+        }
+        
+        .workflow-content {
+            height: calc(100% - 120px);
+        }
+        
+        .workflow-content gradio-lite {
+            height: 100%;
+            display: block;
+        }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Content Security Policy optimized for Gradio Lite -->
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: cdn.jsdelivr.net fonts.googleapis.com fonts.gstatic.com pypi.org files.pythonhosted.org; connect-src 'self' blob: cdn.jsdelivr.net pypi.org files.pythonhosted.org; script-src 'self' 'unsafe-inline' 'unsafe-eval' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' cdn.jsdelivr.net fonts.googleapis.com; font-src 'self' fonts.gstatic.com cdn.jsdelivr.net data:; worker-src 'self' blob:;">
+        
+        <!-- Gradio Lite CDN Resources - Using specific version -->
+        <script type="module" crossorigin src="https://cdn.jsdelivr.net/npm/@gradio/lite@5.42.0/dist/lite.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gradio/lite@5.42.0/dist/lite.css" />
 </head>
 <body>
     <!-- Background layer -->
@@ -254,6 +331,308 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- Workflow Builder Tab Content -->
+                <div class="workflow-container" id="workflow-tab-content" style="display: none;">
+                    <div class="workflow-header">
+                        <h2>🎨 Visual Workflow Builder</h2>
+                        <p>Create sophisticated workflows with drag and drop simplicity.</p>
+                    </div>
+                    
+                    <div class="workflow-content">
+                        <gradio-lite theme="soft">
+import gradio as gr
+import json
+
+# Simple workflow builder state
+workflow_state = {
+    "nodes": [],
+    "connections": [],
+    "next_id": 1
+}
+
+def add_node(node_type, node_name):
+    """Add a new node to the workflow"""
+    if not node_name.strip():
+        return "Please enter a node name", get_workflow_display()
+    
+    node = {
+        "id": workflow_state["next_id"],
+        "type": node_type,
+        "name": node_name.strip(),
+        "properties": {}
+    }
+    
+    workflow_state["nodes"].append(node)
+    workflow_state["next_id"] += 1
+    
+    return f"Added {node_type}: {node_name}", get_workflow_display()
+
+def connect_nodes(from_id, to_id):
+    """Connect two nodes"""
+    try:
+        from_id = int(from_id)
+        to_id = int(to_id)
+        
+        # Check if nodes exist
+        from_node = next((n for n in workflow_state["nodes"] if n["id"] == from_id), None)
+        to_node = next((n for n in workflow_state["nodes"] if n["id"] == to_id), None)
+        
+        if not from_node or not to_node:
+            return "Invalid node IDs", get_workflow_display()
+        
+        connection = {"from": from_id, "to": to_id}
+        if connection not in workflow_state["connections"]:
+            workflow_state["connections"].append(connection)
+            return f"Connected {from_node['name']} → {to_node['name']}", get_workflow_display()
+        else:
+            return "Connection already exists", get_workflow_display()
+    except ValueError:
+        return "Please enter valid node IDs", get_workflow_display()
+
+def remove_node(node_id):
+    """Remove a node and its connections"""
+    try:
+        node_id = int(node_id)
+        
+        # Remove node
+        workflow_state["nodes"] = [n for n in workflow_state["nodes"] if n["id"] != node_id]
+        
+        # Remove connections involving this node
+        workflow_state["connections"] = [
+            c for c in workflow_state["connections"] 
+            if c["from"] != node_id and c["to"] != node_id
+        ]
+        
+        return f"Removed node {node_id}", get_workflow_display()
+    except ValueError:
+        return "Please enter a valid node ID", get_workflow_display()
+
+def clear_workflow():
+    """Clear the entire workflow"""
+    workflow_state["nodes"] = []
+    workflow_state["connections"] = []
+    workflow_state["next_id"] = 1
+    return "Workflow cleared", get_workflow_display()
+
+def get_workflow_display():
+    """Get a text representation of the current workflow"""
+    if not workflow_state["nodes"]:
+        return "No nodes in workflow"
+    
+    display = "**Current Workflow:**\n\n"
+    
+    # Show nodes
+    display += "**Nodes:**\n"
+    for node in workflow_state["nodes"]:
+        display += f"- [{node['id']}] {node['type']}: {node['name']}\n"
+    
+    # Show connections
+    if workflow_state["connections"]:
+        display += "\n**Connections:**\n"
+        for conn in workflow_state["connections"]:
+            from_node = next(n for n in workflow_state["nodes"] if n["id"] == conn["from"])
+            to_node = next(n for n in workflow_state["nodes"] if n["id"] == conn["to"])
+            display += f"- {from_node['name']} → {to_node['name']}\n"
+    
+    return display
+
+def export_workflow():
+    """Export workflow as formatted JSON"""
+    if not workflow_state["nodes"]:
+        return "No workflow to export"
+    return json.dumps(workflow_state, indent=2)
+
+# Create the main interface
+with gr.Blocks(
+    title="🎨 Visual Workflow Builder", 
+    theme=gr.themes.Soft(),
+    css="""
+    .main-container { max-width: 100%; margin: 0 auto; }
+    .workflow-section { margin-bottom: 2rem; }
+    .button-row { display: flex; gap: 1rem; justify-content: center; margin: 1rem 0; }
+    
+    .component-description {
+        padding: 24px;
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        border-radius: 12px;
+        border-left: 4px solid #3b82f6;
+        margin: 16px 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .component-description p {
+        margin: 10px 0;
+        line-height: 1.6;
+        color: #374151;
+    }
+
+    .base-description {
+        font-size: 17px;
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .base-description strong {
+        color: #3b82f6;
+        font-weight: 700;
+    }
+
+    .feature-description {
+        font-size: 16px;
+        color: #1e293b;
+        font-weight: 500;
+    }
+
+    .customization-note {
+        font-size: 15px;
+        color: #64748b;
+        font-style: italic;
+    }
+
+    .sample-intro {
+        font-size: 15px;
+        color: #1e293b;
+        font-weight: 600;
+        margin-top: 16px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 16px;
+    }
+    """
+) as demo:
+    
+    with gr.Column(elem_classes=["main-container"]):
+        # Simple description section with styling
+        gr.HTML("""
+        <div class="component-description">
+            <p class="base-description">Base custom component powered by <strong>svelteflow</strong>.</p>
+            <p class="feature-description">Create custom workflows.</p>
+            <p class="customization-note">You can customise the nodes as well as the design of the workflow.</p>
+            <p class="sample-intro">Here is a sample:</p>
+        </div>
+        """)
+        
+        # Workflow display
+        workflow_display = gr.Markdown(
+            value="No nodes in workflow",
+            label="Current Workflow"
+        )
+        
+        # Node management section
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### Add New Node")
+                node_type = gr.Dropdown(
+                    choices=["Input", "Processing", "Output", "AI/ML", "Logic", "Integration"],
+                    label="Node Type",
+                    value="Processing"
+                )
+                node_name = gr.Textbox(
+                    label="Node Name",
+                    placeholder="Enter node name..."
+                )
+                add_btn = gr.Button("➕ Add Node", variant="primary")
+                add_status = gr.Textbox(label="Status", interactive=False)
+            
+            with gr.Column():
+                gr.Markdown("### Connect Nodes")
+                from_id = gr.Number(
+                    label="From Node ID",
+                    precision=0
+                )
+                to_id = gr.Number(
+                    label="To Node ID",
+                    precision=0
+                )
+                connect_btn = gr.Button("🔗 Connect Nodes")
+                connect_status = gr.Textbox(label="Connection Status", interactive=False)
+        
+        # Management buttons
+        with gr.Row():
+            remove_id = gr.Number(
+                label="Node ID to Remove",
+                precision=0
+            )
+            remove_btn = gr.Button("🗑️ Remove Node", variant="secondary")
+            clear_btn = gr.Button("🧹 Clear All", variant="stop")
+        
+        remove_status = gr.Textbox(label="Remove Status", interactive=False)
+        
+        # Export section
+        gr.Markdown("## 💾 Export Workflow")
+        
+        with gr.Row():
+            with gr.Column():
+                export_output = gr.Code(
+                    language="json", 
+                    label="Workflow Configuration",
+                    lines=10
+                )
+        
+        # Action button
+        with gr.Row(elem_classes=["button-row"]):
+            export_btn = gr.Button("💾 Export JSON", variant="primary", size="lg")
+        
+        # Instructions
+        with gr.Accordion("📖 How to Use", open=False):
+            gr.Markdown("""
+            ### 🚀 Getting Started
+            
+            1. **Add Nodes**: Select a node type, enter a name, and click "Add Node"
+            2. **Connect Nodes**: Use the node IDs to connect them (From ID → To ID)
+            3. **Remove Nodes**: Enter a node ID and click "Remove Node"
+            4. **Export**: Click "Export JSON" to get your workflow configuration
+            
+            ### 🎯 Available Node Types
+            
+            - **📥 Input**: Data input sources
+            - **⚙️ Processing**: Data transformation and processing
+            - **📤 Output**: Results and outputs
+            - **🔧 AI/ML**: Machine learning components
+            - **🔀 Logic**: Conditional logic and decision points
+            - **🌐 Integration**: External service integrations
+            
+            ### 💡 Pro Tips
+            
+            - **Node IDs**: Each node gets a unique ID when created
+            - **Connections**: Connect nodes by their IDs to create workflows
+            - **Export**: Save your workflow as JSON for later use
+            """)
+    
+    # Event handlers
+    add_btn.click(
+        fn=add_node,
+        inputs=[node_type, node_name],
+        outputs=[add_status, workflow_display]
+    )
+    
+    connect_btn.click(
+        fn=connect_nodes,
+        inputs=[from_id, to_id],
+        outputs=[connect_status, workflow_display]
+    )
+    
+    remove_btn.click(
+        fn=remove_node,
+        inputs=[remove_id],
+        outputs=[remove_status, workflow_display]
+    )
+    
+    clear_btn.click(
+        fn=clear_workflow,
+        outputs=[remove_status, workflow_display]
+    )
+    
+    export_btn.click(
+        fn=export_workflow,
+        outputs=[export_output]
+    )
+
+demo.launch()
+                        </gradio-lite>
+                    </div>
+                </div>
             </section>
 
             <!-- Models Section -->
@@ -348,7 +727,11 @@
 
             <!-- Chat Section -->
             <section class="content-section" id="chat-section">
-                <div class="chat-container">
+                <div class="chat-tabs">
+                    <button class="chat-tab-btn active" data-chat-tab="chat">💬 Chat</button>
+                    <button class="chat-tab-btn" data-chat-tab="workflow">🎨 Workflow Builder</button>
+                </div>
+                <div class="chat-container" id="chat-tab-content">
                     <div class="chat-sidebar">
                         <div class="conversations-panel">
                             <div class="conversations-header">

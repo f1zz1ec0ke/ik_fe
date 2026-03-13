@@ -888,10 +888,7 @@ def chat():
                 "role": msg['role'],
                 "content": msg['content']
             })
-        
-        # Note: The current user message is already included in the history
-        # from the frontend, so we don't need to add it again here
-        
+                
         def generate():
             success, response = llama_server.chat_completion(messages, config)
             if not success:

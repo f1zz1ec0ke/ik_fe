@@ -500,6 +500,14 @@ class IkLlamaDashboard {
             });
         }
         
+        // Chat tab switching
+        const chatTabBtns = document.querySelectorAll('.chat-tab-btn');
+        chatTabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.switchChatTab(btn.dataset.chatTab);
+            });
+        });
+        
         // Update build summary when options change
         if (this.repoOptions) {
             this.repoOptions.forEach(option => {
@@ -1492,6 +1500,31 @@ class IkLlamaDashboard {
                 content.classList.remove('active');
             }
         });
+    }
+    
+    switchChatTab(tabName) {
+        // Remove active class from all chat tab buttons
+        document.querySelectorAll('.chat-tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        // Add active class to selected tab button
+        const selectedBtn = document.querySelector(`[data-chat-tab="${tabName}"]`);
+        if (selectedBtn) {
+            selectedBtn.classList.add('active');
+        }
+        
+        // Show/hide appropriate content
+        const chatContent = document.getElementById('chat-tab-content');
+        const workflowContent = document.getElementById('workflow-tab-content');
+        
+        if (tabName === 'chat') {
+            if (chatContent) chatContent.style.display = 'flex';
+            if (workflowContent) workflowContent.style.display = 'none';
+        } else if (tabName === 'workflow') {
+            if (chatContent) chatContent.style.display = 'none';
+            if (workflowContent) workflowContent.style.display = 'block';
+        }
     }
 
     getConfig() {
